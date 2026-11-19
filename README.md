@@ -59,7 +59,7 @@ The module is built for `wasm32-wasip1` rather than `wasm32-unknown-unknown`: `a
 
 ```sh
 node tests/engines.test.mjs                 # the engine: the basis with its d functions, the character of xTB orbitals
-node tests/md.test.mjs                      # dynamics: energy conservation, water for 10 ps at 300 K, BH3NH3 dissociation, the wall
+node tests/md.test.mjs                      # dynamics: energy conservation, water for 10 ps at 300 K, BH3NH3 dissociation, the wall, the hand that leads a molecule
 node tests/adduct.test.mjs                  # BH3 + NH3, brought together "by mouse", form the adduct
 node tests/experiments-screen.mjs           # experiment screening: some fifty pairs, brought together "by mouse" or heated, and what they yield
 node tests/md-dissociation.mjs              # at what temperature and after how long B–N breaks (8 runs per temperature)

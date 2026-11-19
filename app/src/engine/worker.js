@@ -11,7 +11,7 @@
 //   { type: 'compute', id, ...request }   one calculation; if several pile up, only the newest runs
 //   { type: 'md', cmd: 'init', numbers, positions, charge, etemp, unpaired, params, speed, wallRadius, seed, thermalize }
 //   { type: 'md', cmd: 'run' | 'pause' | 'step' | 'stop' }
-//   { type: 'md', cmd: 'set', params?, etemp?, speed?, unpaired?, grab? }   grab: { atom, target } or null
+//   { type: 'md', cmd: 'set', params?, etemp?, speed?, unpaired?, grab? }   grab: { atom, target | toAtom + rest, piece? } or null, see md.js
 //   { type: 'md', cmd: 'move', positions, wallRadius }           nuclei placed by hand
 // Messages out: compute results (with the request's id) and { type: 'md-frame', ... }.
 import { createXtbEngine } from './xtb.js';

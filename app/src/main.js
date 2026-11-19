@@ -6,7 +6,7 @@ import { drawEnergy } from './chart.js';
 import { buildScene, translated, rotated, pieces, composition } from './scene.js';
 import { EXPERIMENTS } from './experiments.js';
 import { fixSigns, frontier, overlapMatrix, followOrbitals } from './orbitals.js';
-import { BOHR_ANGSTROM, HARTREE_EV, NUMBERS } from './units.js';
+import { BOHR_ANGSTROM, HARTREE_EV, NUMBERS, COVALENT } from './units.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -119,7 +119,7 @@ const pretty = (text) => text.split(' + ').map((part) => {
   return (count ? count.trim() + ' ' : '') + (FORMULAS[f] ?? f.replace(/\d/g, (d) => SUB[d]));
 }).join(' + ');
 
-const TWO_HINT = 'Two molecules: drag any nucleus to move its molecule (with Shift, to rotate it). After a breakup each fragment moves separately. While the dynamics is running, the nucleus is pulled to the cursor by a spring.';
+const TWO_HINT = 'Two molecules: drag any nucleus to move its molecule (with Shift, to rotate it). After a breakup each fragment moves separately. While the dynamics is running, the molecule follows the cursor by the nucleus you hold; point at a nucleus of the other molecule to lead it there.';
 const sceneNote = () => {
   const e = state.experiment;
   if (e) return `${e.pull ?? e.todo} What should happen: ${e.expect}`;
@@ -408,10 +408,13 @@ function render(ts) {
   const line = $('grab-line'), hold = drag?.mode === 'hold' && drag.cursor;
   line.classList.toggle('on', !!hold);
   if (hold) {
-    const [ax, ay] = project(atomPosition(drag.atom), camera, canvas.clientWidth, canvas.clientHeight), ox = canvas.offsetLeft, oy = canvas.offsetTop;
+    const w = canvas.clientWidth, h = canvas.clientHeight, ox = canvas.offsetLeft, oy = canvas.offsetTop;
+    const [ax, ay] = project(atomPosition(drag.atom), camera, w, h);
+    // the line ends where the nucleus is being led: at the nucleus it is aimed at (ringed), or at the cursor
+    const [tx, ty] = drag.to >= 0 ? project(atomPosition(drag.to), camera, w, h) : drag.cursor;
     const l = line.firstElementChild, c = line.lastElementChild;
-    l.setAttribute('x1', ox + ax); l.setAttribute('y1', oy + ay); l.setAttribute('x2', ox + drag.cursor[0]); l.setAttribute('y2', oy + drag.cursor[1]);
-    c.setAttribute('cx', ox + drag.cursor[0]); c.setAttribute('cy', oy + drag.cursor[1]);
+    l.setAttribute('x1', ox + ax); l.setAttribute('y1', oy + ay); l.setAttribute('x2', ox + tx); l.setAttribute('y2', oy + ty);
+    c.setAttribute('cx', ox + tx); c.setAttribute('cy', oy + ty); c.setAttribute('r', drag.to >= 0 ? 11 : 4);
   }
 }
 
@@ -609,9 +612,30 @@ function unproject(x, y, depth) {
   return [0, 1, 2].map((c) => cam.ro[c] + (cam.fw[c] * 2.3 + cam.rt[c] * u + cam.up[c] * v) * depth / 2.3);
 }
 
+// While the dynamics runs, the held nucleus is led by the cursor. Over a nucleus of another
+// molecule the target is that nucleus, wherever it is in depth: the point at bonding distance
+// from it. Anywhere else the target is the point under the cursor in the plane that faces
+// the screen and passed through the held nucleus when it was taken.
 function holdAt(x, y) {
   drag.cursor = [x, y];
-  engine.md('set', { session: state.md.session, grab: { atom: drag.atom, target: unproject(x, y, drag.depth) } });
+  const w = canvas.clientWidth, h = canvas.clientHeight, a = drag.atom, numbers = state.molecule.numbers;
+  let to = -1, near = 22;
+  for (let k = 0; k < numbers.length; k++) {
+    if (drag.piece.includes(k)) continue;
+    const [px, py] = project(atomPosition(k), shownCamera, w, h), d = Math.hypot(px - x, py - y);
+    if (d < near) { near = d; to = k; }
+  }
+  // a single molecule has nowhere to be carried: only the spring on the nucleus acts
+  const grab = { atom: a, piece: drag.piece.length < numbers.length ? drag.piece : undefined };
+  if (to >= 0) { grab.toAtom = to; grab.rest = (COVALENT[numbers[a]] + COVALENT[numbers[to]]) / BOHR_ANGSTROM; }
+  else grab.target = unproject(x, y, drag.depth);
+  engine.md('set', { session: state.md.session, grab });
+  if (to !== drag.to) {
+    const el = state.molecule.elements;
+    setStatus(to >= 0 ? `Leading ${el[a]} to ${el[to]}: it is pulled straight towards that nucleus, to bonding distance.`
+      : `Leading ${el[a]} to the cursor, in the plane of the screen. To bring it to an atom of the other molecule, point at that atom's nucleus.`);
+  }
+  drag.to = to;
   dirty = true;
 }
 
@@ -637,7 +661,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (k >= 0 && (state.md?.running || parts.count > 1)) {
     drag.atom = k;
     drag.depth = project(atomPosition(k), shownCamera, canvas.clientWidth, canvas.clientHeight)[2];
-    if (state.md?.running) { drag.mode = 'hold'; holdAt(x, y); }
+    if (state.md?.running) { drag.mode = 'hold'; drag.piece = Array.from(parts.piece.keys()).filter((i) => parts.piece[i] === parts.piece[k]); holdAt(x, y); }
     else { drag.mode = e.shiftKey ? 'turn' : 'move'; drag.member = (a) => parts.piece[a] === parts.piece[k]; }
   }
   if (!state.picking) canvas.style.cursor = 'grabbing';
@@ -686,7 +710,7 @@ canvas.addEventListener('pointermove', (e) => {
   }
 });
 const endDrag = (e) => {
-  if (drag?.mode === 'hold' && state.md) engine.md('set', { session: state.md.session, grab: null });
+  if (drag?.mode === 'hold') { if (state.md) engine.md('set', { session: state.md.session, grab: null }); setStatus(sceneNote()); }
   if (drag && drag.moved < 4 && state.picking && e.type === 'pointerup') {
     const [x, y] = local(e), k = atomAt(x, y);
     if (k >= 0) pickAtom(k);

@@ -45,13 +45,23 @@ export class Dynamics {
       wallRadius, // bohr: beyond it a soft wall pushes atoms back towards the centre
       wallK: 0.1, // hartree / bohr^2
     };
-    // An atom held by the mouse: { atom, target: [x, y, z] (bohr) }. A spring pulls it to the
-    // target; the pull is capped so that it drags the molecule along instead of tearing the
-    // atom off, and the held atom's own motion is damped so that it does not ring.
+    // An atom held by the mouse: { atom, target: [x, y, z] (bohr) }, or { atom, toAtom, rest }
+    // for a target that follows another atom: the point `rest` bohr from it on the line to the
+    // held one. Two things act while it is held.
+    // A spring on the atom itself; its pull is capped so that it turns and bends the molecule
+    // instead of tearing the atom off, and the atom's motion is damped so that it does not ring.
+    // With grab.piece (the atoms of the molecule the held one belongs to), a carrier as well:
+    // the same acceleration for every atom of the piece, steering the piece towards the speed
+    // min(distance / carryTime, carrySpeed) in the direction of the target. It strains no bond,
+    // so it may be strong, and a heavy molecule follows as readily as a light one.
     this.grab = null;
     this.grabK = 0.08; // hartree / bohr^2
     this.grabMaxForce = 0.03; // hartree / bohr (bonds here resist with 0.1 or more)
     this.grabDamping = 25; // fs
+    this.carrySpeed = 0.04; // bohr / fs: about three thermal speeds of a small molecule at 300 K
+    this.carryTime = 20; // fs: the approach slows down over the last carrySpeed * carryTime bohr
+    this.carryRelax = 10; // fs: how fast the piece takes the wanted speed
+    this.carryMaxForce = 0.12; // hartree / bohr on the whole piece: what it presses with on an obstacle
     this.time = 0; // fs
     this.steps = 0;
     this.epot = 0; // engine energy + wall energy
@@ -80,14 +90,36 @@ export class Dynamics {
         for (let c = 0; c < 3; c++) this.f[3 * i + c] -= k * (d - R) * this.x[3 * i + c] / d;
       }
     }
-    // the spring of the mouse is outside work: its energy is not counted in epot
+    // the hand is outside work: its energy is not counted in epot
     if (this.grab) {
-      const a = this.grab.atom, d = [0, 1, 2].map((c) => this.grab.target[c] - this.x[3 * a + c]), len = Math.hypot(...d);
+      const g = this.grab, a = g.atom, d = this.grabVector(), len = Math.hypot(...d);
       const pull = Math.min(this.grabK * len, this.grabMaxForce);
       if (len > 1e-9) for (let c = 0; c < 3; c++) this.f[3 * a + c] += pull * d[c] / len;
+      if (g.piece && len > 1e-9) {
+        const { mass, velocity } = this.pieceMotion(g.piece), want = Math.min(len / this.carryTime, this.carrySpeed) / FS;
+        const F = [0, 1, 2].map((c) => mass * (want * d[c] / len - velocity[c]) / (this.carryRelax * FS));
+        const size = Math.hypot(...F), k = Math.min(1, this.carryMaxForce / Math.max(size, 1e-12)) / mass;
+        for (const i of g.piece) for (let c = 0; c < 3; c++) this.f[3 * i + c] += k * this.mass[i] * F[c];
+      }
     }
     this.epot = r.energy + wall;
     return true;
+  }
+
+  // from the held atom to where the hand wants it
+  grabVector() {
+    const g = this.grab, a = g.atom, x = this.x;
+    if (g.toAtom === undefined) return [0, 1, 2].map((c) => g.target[c] - x[3 * a + c]);
+    const u = [0, 1, 2].map((c) => x[3 * a + c] - x[3 * g.toAtom + c]), l = Math.hypot(...u) || 1;
+    return u.map((v) => v * (g.rest / l - 1));
+  }
+
+  // mass and centre-of-mass velocity of a set of atoms
+  pieceMotion(piece) {
+    const velocity = [0, 0, 0];
+    let mass = 0;
+    for (const i of piece) { mass += this.mass[i]; for (let c = 0; c < 3; c++) velocity[c] += this.mass[i] * this.v[3 * i + c]; }
+    return { mass, velocity: velocity.map((p) => p / mass) };
   }
 
   // Put the nuclei somewhere else by hand (velocities are kept); false if the engine failed.
@@ -160,8 +192,9 @@ export class Dynamics {
       for (let c = 0; c < 3; c++) this.v[3 * i + c] += a * this.f[3 * i + c];
     }
     if (this.grab) {
-      const k = Math.exp(-dt / this.grabDamping), a = this.grab.atom;
-      for (let c = 0; c < 3; c++) this.v[3 * a + c] *= k;
+      // with a carrier the atom is damped relative to its molecule, which is meant to move
+      const k = Math.exp(-dt / this.grabDamping), a = this.grab.atom, base = this.grab.piece ? this.pieceMotion(this.grab.piece).velocity : [0, 0, 0];
+      for (let c = 0; c < 3; c++) this.v[3 * a + c] = base[c] + k * (this.v[3 * a + c] - base[c]);
     }
     this.time += dt;
     this.steps++;

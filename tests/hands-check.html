@@ -136,6 +136,22 @@ try {
     d.getElementById('md-run').click();
     await until(() => s.md.running);
   }
+  {
+    // pointing at a nucleus of the other molecule aims the held one at it, whatever its depth
+    // (the dynamics runs at 300 fs/s here, so everything is read at once and the hold is short)
+    const [nx, ny] = screen(N), ring = d.querySelector('#grab-line circle'), status = () => d.getElementById('status').textContent;
+    fire('pointerdown', nx, ny); fire('pointermove', nx, ny - 60);
+    const free = status(), smallRing = ring.getAttribute('r') ?? '4';
+    const [bx, by] = screen(B);
+    fire('pointermove', bx + 3, by + 3);
+    await sleep(50);
+    const [cx, cy] = [ring.getAttribute('cx'), ring.getAttribute('cy')].map(Number), [bx2, by2] = screen(B);
+    const onBoron = Math.hypot(cx - cv.offsetLeft - bx2, cy - cv.offsetTop - by2) < 6;
+    note(`held over empty space the status reads "${free.slice(0, 40)}…"; over boron it reads "${status().slice(0, 15)}…" and the ring sits on the boron nucleus`,
+      /plane of the screen/.test(free) && smallRing === '4' && /^Leading N to B/.test(status()) && ring.getAttribute('r') === '11' && onBoron);
+    fire('pointerup', bx, by);
+    note('letting go brings the scene hint back', !/^Leading/.test(status()));
+  }
   const epotApart = s.md.epot, t0 = s.md.time;
   let [x, y] = screen(N);
   fire('pointerdown', x, y);

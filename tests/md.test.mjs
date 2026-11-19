@@ -77,4 +77,31 @@ console.log('a failed electronic step stops the dynamics and leaves the state un
   ok(md.step() === false && md.error.converged === false, 'step() reports the failure');
   ok(md.x.every((q, i) => q === x[i]) && md.v.every((q, i) => q === v[i]) && md.time === time, 'positions, velocities and time are as before the failed step');
 }
+console.log('the hand: a held nucleus leads its whole molecule to a nucleus of another one');
+{
+  const { readFileSync } = await import('node:fs');
+  const { createXtbEngine } = await import('../app/src/engine/xtb.js');
+  const { buildScene, composition } = await import('../app/src/scene.js');
+  const { COVALENT } = await import('../app/src/units.js');
+  const xtb = await createXtbEngine(readFileSync(new URL('../app/engine/xtb_wasm.wasm', import.meta.url)));
+  const library = JSON.parse(readFileSync(new URL('../app/src/library.json', import.meta.url))).molecules
+    .map((m) => ({ ...m, bohr: Float64Array.from(m.xyz, (v) => v / BOHR_ANGSTROM) }));
+  // seconds: [first, second, held element of the second, target element of the first, unpaired, what must come out]
+  for (const [first, second, heldEl, toEl, unpaired, product] of [['h2o', 'so3', 'S', 'O', 0, 'H2O4S'], ['nh3', 'alcl3', 'Al', 'N', 0, 'AlCl3H3N'], ['h2', 'o2', 'O', 'H', 2, 'H2 + O2']]) {
+    const a = library.find((m) => m.key === first), b = library.find((m) => m.key === second), scene = buildScene(a, b), n1 = a.elements.length;
+    const held = n1 + b.elements.indexOf(heldEl), to = a.elements.indexOf(toEl), rest = (COVALENT[scene.numbers[held]] + COVALENT[scene.numbers[to]]) / BOHR_ANGSTROM;
+    const md = new Dynamics({ numbers: scene.numbers, positions: scene.positions, seed: 5, wallRadius: 14,
+      force: (x, orbitals) => xtb.compute({ numbers: scene.numbers, positions: x, charge: 0, etemp: 300, forces: true, orbitals, accuracy: ACC, unpaired }) });
+    md.init(false); md.thermalize(300);
+    const d0 = dist(md.x, held, to);
+    md.grab = { atom: held, toAtom: to, rest, piece: scene.numbers.map((_, i) => i).filter((i) => i >= n1) };
+    let arrived = null;
+    while (md.time < 1500) { assert.ok(md.step(), 'SCF failed'); if (arrived === null && dist(md.x, held, to) < 1.25 * rest * BOHR_ANGSTROM) arrived = md.time; }
+    md.grab = null;
+    while (md.time < 2500) assert.ok(md.step(), 'SCF failed');
+    const now = composition({ elements: scene.elements, positions: md.x });
+    if (product.includes('+')) ok(now === product, `${first} + ${second}: pressed together for 1.5 ps and let go, they are still ${now}`);
+    else ok(arrived !== null && arrived < 250 && now === product, `${first} + ${second}: ${heldEl} is led from ${d0.toFixed(1)} A to ${toEl} in ${arrived?.toFixed(0)} fs, and they stay together as ${now}`);
+  }
+}
 console.log(`${checks} checks passed`);
