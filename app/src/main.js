@@ -1,5 +1,4 @@
 import { createEngineClient } from './engine/client.js';
-import { EHT_NUMBERS } from './engine/eht.js';
 import { FogRenderer, project, cameraBasis } from './render/fog.js';
 import * as P from './plane.js';
 import { drawSlice } from './slice2d.js';
@@ -14,7 +13,6 @@ const params = new URLSearchParams(location.search);
 const canvas = $('view'), labels = $('labels'), statusEl = $('status');
 const setStatus = (text, error = false) => { statusEl.textContent = text; statusEl.classList.toggle('error', error); };
 
-const ENGINE_NAMES = { xtb: 'GFN2-xTB', eht: 'Hückel' };
 const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 const state = {
@@ -22,7 +20,6 @@ const state = {
   second: params.get('second') || '', // key of the second molecule in the scene, or ''
   unpaired: 0, // number of unpaired electrons in the scene (set from the scene, changeable in the settings)
   experiment: null, // the chosen entry of EXPERIMENTS, until the molecules are changed by hand
-  engine: params.get('engine') === 'eht' ? 'eht' : 'xtb',
   body: params.get('body') !== '0',
   wobble: params.has('wobble') ? params.get('wobble') === '1' : !reduceMotion,
   selected: -1,
@@ -77,11 +74,6 @@ const engine = createEngineClient();
 async function loadLibrary() {
   const lib = await (await fetch(new URL('./library.json', import.meta.url))).json();
   library = lib.molecules.map((m) => ({ ...m, bohr: Float64Array.from(m.xyz, (v) => v / BOHR_ANGSTROM) }));
-  if (params.get('geom') === 'ref') {
-    // geometries of the reference demo, for comparing the picture with it
-    const ref = (await (await fetch(new URL('./ref-geometries.json', import.meta.url))).json()).molecules;
-    library = library.filter((m) => ref[m.key]).map((m) => ({ ...m, elements: ref[m.key].elements, bohr: Float64Array.from(ref[m.key].bohr), note: 'Reference geometry.' }));
-  }
   // both lists, grouped under the headings of the library
   const fill = (select, entries) => {
     const groups = new Map();
@@ -139,20 +131,11 @@ const failure = (res) => (res.converged === false ? `The electronic problem did 
 // builds the scene from the library and shows it: new molecule(s), view reset
 async function recompute() {
   const scene = buildScene(library.find((m) => m.key === state.mol), library.find((m) => m.key === state.second));
-  // the Hückel engine has parameters for H, B, C, N, O only
   // a new scene starts with its own number of unpaired electrons; an experiment may ask for another
   if (freshScene || scene.key !== state.molecule?.key) state.unpaired = state.experiment?.unpaired ?? scene.unpaired;
   freshScene = false;
-  // the Hückel engine also knows nothing about unpaired electrons
-  const ehtButton = $('engine').querySelector('[data-engine="eht"]'), ehtOk = scene.numbers.every((z) => EHT_NUMBERS.includes(z)) && scene.electrons % 2 === 0 && state.unpaired === 0;
-  ehtButton.disabled = !ehtOk;
-  ehtButton.title = ehtOk ? 'Extended Hückel method: a simple reference, no forces' : 'The Hückel method cannot run here: the scene has elements it has no parameters for, or unpaired electrons';
-  if (!ehtOk && state.engine === 'eht') {
-    state.engine = 'xtb';
-    for (const o of $('engine').children) o.setAttribute('aria-pressed', String(o.dataset.engine === 'xtb'));
-  }
   setStatus('Calculating…');
-  const res = await engine.compute({ engine: state.engine, numbers: scene.numbers, positions: scene.positions, charge: scene.charge, etemp: state.settings.etemp, unpaired: state.unpaired, forces: false });
+  const res = await engine.compute({ numbers: scene.numbers, positions: scene.positions, charge: scene.charge, etemp: state.settings.etemp, unpaired: state.unpaired, forces: false });
   if (!res) return; // superseded by a newer request
   if (!res.ok) { setStatus(failure(res), true); return; }
   fixSigns(res);
@@ -205,7 +188,7 @@ async function recomputeMoved(positions) {
   state.molecule = { ...state.molecule, positions };
   dirty = true;
   const m = state.molecule;
-  const res = await engine.compute({ engine: state.engine, numbers: m.numbers, positions, charge: m.charge, etemp: state.settings.etemp, unpaired: state.unpaired, forces: false });
+  const res = await engine.compute({ numbers: m.numbers, positions, charge: m.charge, etemp: state.settings.etemp, unpaired: state.unpaired, forces: false });
   if (!res) return;
   if (!res.ok) { setStatus(failure(res), true); return; }
   if (statusEl.classList.contains('error')) setStatus(sceneNote());
@@ -224,8 +207,8 @@ function buildInfo() {
     ['E total', `${fmt(md.etot, 5)} Eh`],
     ['Steps per second', md.running && md.rate ? md.rate.toFixed(0) : '—'],
   ] : [
-    ['Method', ENGINE_NAMES[r.engine]],
-    [r.engine === 'xtb' ? 'Total energy' : 'Sum of levels', `${fmt(r.energy, 5)} Eh`],
+    ['Method', 'GFN2-xTB'],
+    ['Total energy', `${fmt(r.energy, 5)} Eh`],
   ];
   if (homo >= 0 && lumo >= 0) rows.push(['HOMO–LUMO gap', `${fmt((r.eps[lumo] - r.eps[homo]) * HARTREE_EV, 2)} eV`]);
   if (!md) {
@@ -453,10 +436,9 @@ let sessions = 0;
 
 // pushes the dynamics state to its controls
 function refreshMd() {
-  const st = state.settings, md = state.md, can = state.engine === 'xtb';
+  const st = state.settings, md = state.md;
   $('md-run').textContent = md?.running ? '⏸ Pause' : '▶ Start';
   $('md-run').setAttribute('aria-pressed', String(!!md?.running));
-  for (const id of ['md-run', 'md-step', 'md-temp', 'md-speed', 'md-thermo', 'md-dt', 'md-tau']) $(id).disabled = !can;
   $('md-reset').disabled = !md;
   $('md-chart').hidden = !md;
   $('md-temp').value = st.temperature;
@@ -470,8 +452,6 @@ function refreshMd() {
   pick.textContent = '';
   for (let u = n % 2; u <= Math.min(n, 6); u += 2) pick.add(new Option(u === 0 ? '0 — all paired' : String(u), u));
   pick.value = state.unpaired;
-  pick.disabled = !can;
-  $('md-note').textContent = can ? '' : 'The Hückel method gives no forces: dynamics works only with GFN2-xTB.';
 }
 
 // the soft wall sits just inside what the camera frames for the molecule at rest
@@ -496,7 +476,6 @@ function mdStart() {
 }
 
 function mdCommand(cmd, data = {}) {
-  if (state.engine !== 'xtb') return;
   if (!state.md) mdStart();
   engine.md(cmd, { session: state.md.session, ...data });
   if (cmd === 'run' || cmd === 'pause' || cmd === 'step') { state.md.running = cmd === 'run'; setStatus(sceneNote()); refreshMd(); }
@@ -555,21 +534,11 @@ function startExperiment(key) {
   $('mol').value = state.mol; $('mol2').value = state.second;
   Object.assign(state.settings, { temperature: e.temperature ?? 300, etemp: e.etemp ?? 300, speed: e.speed ?? 60, thermostat: true });
   freshScene = true; // the scene's (or the experiment's) number of unpaired electrons is taken afresh
-  if (state.engine !== 'xtb') { state.engine = 'xtb'; for (const o of $('engine').children) o.setAttribute('aria-pressed', String(o.dataset.engine === 'xtb')); }
   params.delete('orb');
   mdStop();
   return recompute();
 }
 $('experiment').addEventListener('change', (e) => startExperiment(e.target.value));
-for (const b of $('engine').children) {
-  b.setAttribute('aria-pressed', String(b.dataset.engine === state.engine));
-  b.addEventListener('click', () => {
-    state.engine = b.dataset.engine;
-    for (const o of $('engine').children) o.setAttribute('aria-pressed', String(o === b));
-    mdStop();
-    recompute();
-  });
-}
 $('body').checked = state.body;
 $('wobble').checked = state.wobble;
 $('body').addEventListener('change', (e) => { state.body = e.target.checked; dirty = true; });

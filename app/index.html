@@ -18,12 +18,6 @@
   <label class="field" title="A second molecule in the scene. You can drag it to the first one by any nucleus.">Second
     <select id="mol2"></select>
   </label>
-  <div class="field" role="group" aria-label="Quantum method">Method
-    <div class="seg" id="engine">
-      <button type="button" data-engine="xtb" aria-pressed="true" title="GFN2-xTB: a self-consistent semiempirical method, gives forces">GFN2-xTB</button>
-      <button type="button" data-engine="eht" aria-pressed="false" title="Extended Hückel method: a simple reference, no forces">Hückel</button>
-    </div>
-  </div>
   <label class="check"><input type="checkbox" id="body" checked>Molecule body</label>
   <label class="check"><input type="checkbox" id="wobble" checked>Wobble</label>
   <button type="button" id="about-open" class="ghost">About the model</button>
@@ -73,7 +67,6 @@
         <label class="row" title="How many electrons are left unpaired (spins pointing the same way). 0 means all paired; oxygen has 2; a radical has 1. The number must have the same parity as the number of electrons in the scene."><span>Unpaired e⁻</span><select id="unpaired"></select></label>
       </details>
       <canvas id="md-chart" hidden aria-label="Plot of the total and potential energy over time"></canvas>
-      <p id="md-note"></p>
     </div>
     <h2>Cutting plane</h2>
     <div class="panel" id="plane-panel">
@@ -117,7 +110,7 @@
 </main>
 <dialog id="about">
   <h2>About the model</h2>
-  <p>The electrons are computed with the GFN2-xTB method right in the browser; the extended Hückel method is there for comparison. What you see are the valence electrons: the inner shells are not part of these methods.</p>
+  <p>The electrons are computed with the GFN2-xTB method right in the browser. What you see are the valence electrons: the inner shells are not part of this method.</p>
   <h3>What the model cannot do</h3>
   <ul>
     <li>The nuclei are classical. There is no zero-point motion, and at low temperatures the amplitudes are too small.</li>
@@ -126,7 +119,7 @@
     <li>Light in a model like this can only be a classical wave. There is no spontaneous emission.</li>
   </ul>
   <h3>Licenses</h3>
-  <p>The GFN2-xTB calculation is done by the <a href="https://github.com/atomsforhumanity/axtb" target="_blank" rel="noopener">axtb</a> 0.1.2 library, built into WebAssembly. It is distributed under the GNU LGPL, version 3 or later. <a href="licenses/index.html">License texts and the contents of the module</a>; <a href="source/index.html">the module's source code and how to rebuild it</a> with your own version of the library.</p>
+  <p>The GFN2-xTB calculation is done by the <a href="https://github.com/atomsforhumanity/axtb" target="_blank" rel="noopener">axtb</a> 0.1.2 library, built into WebAssembly. It is distributed under the GNU LGPL, version 3 or later. <a href="licenses/index.html">License texts and the contents of the module</a>; <a href="source/index.html">the module's source code and how to rebuild it</a> with your own version of the library. The code of chemsim itself is under the <a href="licenses/chemsim-LICENSE.txt">MIT license</a>.</p>
   <form method="dialog"><button>Close</button></form>
 </dialog>
 <script type="module" src="src/main.js"></script>

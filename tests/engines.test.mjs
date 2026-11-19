@@ -1,18 +1,14 @@
 // Engine checks that need no browser:  node tests/engines.test.mjs
-//  1. the app's Hückel engine reproduces reference/eht-core.js exactly;
-//  2. both engines describe their basis correctly through the common interface
+//  1. the engine describes its basis correctly through the common interface
 //     (the density integrates to the number of valence electrons);
-//  3. the xTB frontier orbitals have the expected character on the library geometries.
+//  2. the xTB frontier orbitals have the expected character on the library geometries.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createEhtEngine } from '../app/src/engine/eht.js';
 import { createXtbEngine } from '../app/src/engine/xtb.js';
 import { fixSigns, frontier, describe } from '../app/src/orbitals.js';
 import { BOHR_ANGSTROM, HARTREE_EV, NUMBERS } from '../app/src/units.js';
 
 const root = new URL('../', import.meta.url);
-const ref = new Function(readFileSync(new URL('reference/eht-core.js', root), 'utf8') + ';return {build,solve};')();
-const eht = createEhtEngine();
 const xtb = await createXtbEngine(readFileSync(new URL('app/engine/xtb_wasm.wasm', root)));
 const library = JSON.parse(readFileSync(new URL('app/src/library.json', root))).molecules;
 const mol = (key) => {
@@ -27,16 +23,6 @@ const run = (engine, m) => {
 };
 let checks = 0;
 const ok = (cond, msg) => { assert.ok(cond, msg); checks++; console.log('  ok  ' + msg); };
-
-console.log('Hückel engine against reference/eht-core.js');
-for (const name of ['h2o', 'nh3', 'bh3', 'c2h4', 'pair']) {
-  const atoms = ref.build(name, 3), R = ref.solve(atoms);
-  const r = eht.compute({ numbers: atoms.map((a) => NUMBERS[a.el]), positions: Float64Array.from(atoms.flatMap((a) => a.r)), charge: 0 });
-  const dE = Math.max(...R.E.map((e, i) => Math.abs(e - r.eps[i] * HARTREE_EV)));
-  let dC = 0;
-  for (let m = 0; m < R.n; m++) for (let i = 0; i < R.n; i++) dC = Math.max(dC, Math.abs(R.C[m][i] - r.coeff[m * R.n + i]));
-  ok(dE < 1e-12 && dC < 1e-12, `${name}: energies and coefficients identical (max dE ${dE.toExponential(1)} eV, max dC ${dC.toExponential(1)})`);
-}
 
 console.log('basis description through the interface: electrons on a grid');
 function electrons(m, r, h = 0.14, L = 8) {
@@ -61,7 +47,7 @@ function electrons(m, r, h = 0.14, L = 8) {
   }
   return total * h ** 3;
 }
-for (const [name, engine] of [['xtb', xtb], ['eht', eht]]) {
+for (const [name, engine] of [['xtb', xtb]]) {
   const m = mol('h2o'), ne = electrons(m, run(engine, m));
   ok(Math.abs(ne - 8) < 2e-3, `${name}, water: ${ne.toFixed(4)} electrons (expected 8)`);
 }
@@ -114,7 +100,7 @@ console.log(`${checks} checks passed`);
 {
   const { overlapMatrix, followOrbitals } = await import('../app/src/orbitals.js');
   console.log('overlap matrix and orbital continuity');
-  for (const [name, engine] of [['xtb', xtb], ['eht', eht]]) {
+  for (const [name, engine] of [['xtb', xtb]]) {
     const m = mol('bh3nh3'), r = run(engine, m), S = overlapMatrix(r.shells, m.positions), n = r.nao;
     let err = 0;
     for (let i = 0; i < r.nmo; i++) for (let j = 0; j < r.nmo; j++) {

@@ -23,33 +23,21 @@ try {
   for (const key of keys) {
     sel.value = key; sel.dispatchEvent(new w.Event('change'));
     const row = { key };
-    for (const engine of ['xtb', 'eht']) {
-      await until(() => s.molecule?.key === key, 8000);
-      const button = d.querySelector(`#engine [data-engine="${engine}"]`);
-      // elements without Hückel parameters: the button must be off, and that is all
-      const supported = s.molecule.numbers.every((z) => [1, 5, 6, 7, 8].includes(z)) && s.molecule.electrons % 2 === 0 && s.unpaired === 0;
-      if (engine === 'eht' && !supported) { if (!button.disabled) out.problems.push(`${key}: the Hückel button should be disabled`); row.eht = 'off'; continue; }
-      if (button.disabled) { out.problems.push(`${key}: the ${engine} button is disabled`); continue; }
-      button.click();
-      const good = await until(() => s.molecule?.key === key && s.result?.engine === engine && !status().classList.contains('error'), 8000);
-      if (!good) { out.problems.push(`${key} with ${engine}: ${status().textContent || 'no result'}`); continue; }
-      const px = new Uint8Array(4), gl = c.renderer.gl;
-      c.snapshot(); gl.readPixels(gl.drawingBufferWidth >> 1, gl.drawingBufferHeight >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
-      if (gl.isContextLost() || gl.getError()) out.problems.push(`${key} with ${engine}: drawing failed`);
-      const occ = Array.from(s.result.occ).reduce((a, b) => a + b, 0);
-      if (engine === 'xtb') { row.atoms = s.molecule.elements.length; row.electrons = Math.round(occ); row.charge = s.molecule.charge; row.unpaired = s.unpaired; row.ms = +s.result.ms.toFixed(1); }
-    }
-    d.querySelector('#engine [data-engine="xtb"]').click();
-    await until(() => s.result?.engine === 'xtb' && s.molecule?.key === key);
+    const good = await until(() => s.molecule?.key === key && !status().classList.contains('error'), 8000);
+    if (!good) { out.problems.push(`${key}: ${status().textContent || 'no result'}`); continue; }
+    const px = new Uint8Array(4), gl = c.renderer.gl;
+    c.snapshot(); gl.readPixels(gl.drawingBufferWidth >> 1, gl.drawingBufferHeight >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    if (gl.isContextLost() || gl.getError()) out.problems.push(`${key}: drawing failed`);
+    const occ = Array.from(s.result.occ).reduce((a, b) => a + b, 0);
+    Object.assign(row, { atoms: s.molecule.elements.length, electrons: Math.round(occ), charge: s.molecule.charge, unpaired: s.unpaired, ms: +s.result.ms.toFixed(1) });
     c.md.run();
     const ran = await until(() => s.md?.steps >= 20 || status().classList.contains('error'), 8000);
     if (!ran || status().classList.contains('error')) out.problems.push(`${key}: dynamics: ${status().textContent || 'did not start'}`);
     else row.rate = Math.round(s.md.rate || 0);
     await c.md.reset();
-    out.rows.push(`${key.padEnd(8)} ${String(row.atoms).padStart(2)} atoms  charge ${row.charge >= 0 ? '+' : ''}${row.charge}  ${row.electrons} valence e${row.unpaired ? `, ${row.unpaired} unpaired` : ''}${row.eht ? '  (no Hückel)' : ''}`);
+    out.rows.push(`${key.padEnd(8)} ${String(row.atoms).padStart(2)} atoms  charge ${row.charge >= 0 ? '+' : ''}${row.charge}  ${row.electrons} valence e${row.unpaired ? `, ${row.unpaired} unpaired` : ''}`);
   }
   out.count = keys.length;
-  out.noHuckel = out.rows.filter((r) => r.includes('no Hückel')).length;
   out.unpaired = out.rows.filter((r) => r.includes('unpaired')).map((r) => r.split(/\s+/)[0] + ':' + r.match(/(\d) unpaired/)[1]).join(' ');
   out.ok = out.problems.length === 0 && keys.length > 75;
 } catch (e) { out.ok = false; out.error = String(e.stack || e); }

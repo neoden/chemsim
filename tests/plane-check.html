@@ -35,7 +35,7 @@ function cpuField(res, pos, m, field, p) {
 try {
   for (const [q, name] of [
     ['mol=h2o&orb=2&plane=three:0,1,2', 'h2o psi'], ['mol=c2h4&orb=homo&plane=across:0,1&poffset=0.3', 'c2h4 psi'],
-    ['mol=c6h6&orb=homo&plane=along:0,3&pfield=rho', 'c6h6 rho'], ['mol=bh3nh3&orb=homo&plane=along:0,4&engine=eht', 'bh3nh3 psi (eht)'],
+    ['mol=c6h6&orb=homo&plane=along:0,3&pfield=rho', 'c6h6 rho'], ['mol=bh3nh3&orb=homo&plane=along:0,4', 'bh3nh3 psi'],
   ]) {
     const w = await openApp(q), c = w.chemsim, f = c.sliceField(96);
     if (!f) { out.exact.push(`${name}: float readback unavailable, skipped`); continue; }

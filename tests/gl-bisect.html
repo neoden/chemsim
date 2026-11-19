@@ -6,10 +6,11 @@ const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body
 const out = { ok: true, stages: [] };
 try {
   const { FogRenderer } = await import('/app/src/render/fog.js');
-  const { createEhtEngine } = await import('/app/src/engine/eht.js');
+  const { createXtbEngine } = await import('/app/src/engine/xtb.js');
   const lib = await (await fetch('/app/src/library.json')).json();
   const m = lib.molecules[0], pos = Float64Array.from(m.xyz, (v) => v / 0.529177210903);
-  const res = createEhtEngine().compute({ numbers: m.elements.map((e) => ({ H: 1, O: 8 })[e]), positions: pos, charge: 0 });
+  const xtb = await createXtbEngine(await (await fetch('/app/engine/xtb_wasm.wasm')).arrayBuffer());
+  const res = xtb.compute({ numbers: m.elements.map((e) => ({ H: 1, O: 8 })[e]), positions: pos, charge: 0, etemp: 300 });
   const r = new FogRenderer(document.getElementById('c'), { bodyGrid: false });
   const gl = r.gl;
   out.gpu = r.rendererName();

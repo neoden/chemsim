@@ -29,6 +29,7 @@ rmSync(lic, { recursive: true, force: true });
 mkdirSync(join(lic, 'third-party'), { recursive: true });
 for (const [from, to] of [['COPYING', 'GPL-3.0.txt'], ['COPYING.LESSER', 'LGPL-3.0.txt'], ['NOTICE', 'axtb-NOTICE.txt'], ['LICENSE', 'axtb-LICENSE.txt']])
   cpSync(join(axtb, from), join(lic, to));
+cpSync(join(root, 'LICENSE'), join(lic, 'chemsim-LICENSE.txt'));
 // Some MIT crates do not ship the licence text in the package. For those the standard MIT
 // text is written out with the authors named in the crate's own manifest.
 const MIT = (who) => `MIT License
@@ -81,6 +82,8 @@ writeFileSync(join(lic, 'index.html'), page('chemsim: licenses', `<h1>Licenses</
 Where the parameters and algorithms of axtb come from is stated in its <a href="axtb-NOTICE.txt">NOTICE</a>; how the licenses apply to the parts of axtb is in its <a href="axtb-LICENSE.txt">LICENSE</a>.</p>
 <p>The library is used unmodified. Its source code: <a href="https://github.com/atomsforhumanity/axtb/tree/${axtbCommit}">github.com/atomsforhumanity/axtb</a>, commit <code>${axtbCommit.slice(0, 12)}</code> (tag v${esc(axtbVersion)}).
 The source code of the wrapper it is built into the module with, and instructions for rebuilding with a modified version of the library, are <a href="../source/index.html">next to the site</a>.</p>
+<h2>chemsim</h2>
+<p>The code of chemsim itself (the application, the shaders and the wrapper of the module) is under the <a href="chemsim-LICENSE.txt">MIT license</a>. The axtb library inside the module stays under the LGPL.</p>
 <h2>What the module contains</h2>
 <table><tr><th>Package</th><th>Version</th><th>License</th><th>Texts</th></tr>
 ${rows.join('\n')}
@@ -91,11 +94,13 @@ const src = join(app, 'source');
 rmSync(src, { recursive: true, force: true });
 mkdirSync(join(src, 'xtb-wasm'), { recursive: true });
 for (const f of ['Cargo.toml', 'Cargo.lock', 'src']) cpSync(join(wrapper, f), join(src, 'xtb-wasm', f), { recursive: true });
+cpSync(join(root, 'LICENSE'), join(src, 'xtb-wasm', 'LICENSE'));
 cpSync(join(app, 'src/engine/xtb-binding.js'), join(src, 'xtb-binding.js'));
 const list = (dir, base = '') => readdirSync(join(dir, base)).flatMap((f) => (statSync(join(dir, base, f)).isDirectory() ? list(dir, join(base, f)) : [join(base, f)]));
 writeFileSync(join(src, 'index.html'), page('chemsim: source code of the calculation module', `<h1>Source code of the calculation module</h1>
 <p><a href="../index.html">← back to the app</a> · <a href="../licenses/index.html">licenses</a></p>
 <p>The module <code>engine/xtb_wasm.wasm</code> is the axtb library, version ${esc(axtbVersion)}, and a small wrapper with a flat C interface. Everything needed to build it again is here, including with a modified version of axtb.</p>
+<p>The wrapper is under the <a href="xtb-wasm/LICENSE">MIT license</a>. You may change it and rebuild the module, also with a modified version of axtb.</p>
 <h2>Files</h2>
 <ul>${list(src).filter((f) => f !== 'index.html').map((f) => `<li><a href="${esc(f)}">${esc(f)}</a></li>`).join('')}</ul>
 <h2>Building</h2>

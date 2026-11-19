@@ -4,7 +4,7 @@ A browser-based chemistry simulator at the level of atoms.
 
 Status: stage 0 (engine probe), stage 1 (static viewer on the new engine), stage 2 (cutting plane), stage 3 (dynamics), stage 4 (hands-on interaction) and stage 5 (build for demonstration) are complete. The first version is ready.
 
-Elements: H, He, Li, Be, B, C, N, O, F, Na, K — the ones for which GFN2-xTB needs only s and p functions (the renderer does not draw anything else yet). The engine handles every element up to Rn; adding Si, P, S, Cl and the metals requires teaching the shader d functions. The Hückel method has parameters only for H, B, C, N, O and is disabled for the rest.
+Elements: H, He, Li, Be, B, C, N, O, F, Na, K — the ones for which GFN2-xTB needs only s and p functions (the renderer does not draw anything else yet). The engine handles every element up to Rn; adding Si, P, S, Cl and the metals requires teaching the shader d functions.
 
 Unpaired electrons: the engine is given their number (two for O₂, one for radicals). The scene sets it, and it can be changed under "Settings" in the dynamics panel. Spin only decides how electrons are distributed over the orbitals; GFN2-xTB knows no energy difference between "up" and "down".
 
@@ -27,7 +27,7 @@ The contents of `dist/` are the finished site: plain static files with relative 
 ## Layout
 
 - `app/` — the application.
-  - `src/engine/` — two engines behind one interface (described in `worker.js`): `xtb.js` (GFN2-xTB in WebAssembly) and `eht.js` (Hückel, from the reference). They run in a Web Worker; stale requests are dropped.
+  - `src/engine/` — the engine `xtb.js` (GFN2-xTB in WebAssembly) behind the interface described in `worker.js`. It runs in a Web Worker; stale requests are dropped.
   - `src/render/fog.js` — the renderer: ray marching in WebGL2, with the basis and coefficients in data textures; the plane cut lives here too.
   - `src/md.js` — molecular dynamics: integrator, thermostat, wall. No DOM, so it runs both in a Worker and in Node.
   - `src/orbitals.js` — signs, the overlap matrix, matching orbitals between frames.
@@ -40,7 +40,6 @@ The contents of `dist/` are the finished site: plain static files with relative 
 - `engine/xtb-wasm/` — a Rust wrapper around the `axtb` crate with a flat C interface. It builds into a WebAssembly module and into a native program for cross-checking.
 - `engine/cases/`, `engine/probe/` — geometries and checks from stage 0.
 - `third_party/axtb/` — https://github.com/atomsforhumanity/axtb at tag `v0.1.2`, unmodified, as a git submodule (clone with `--recurse-submodules`).
-- `reference/` — the reference material: the rendering demos and the Hückel core with its tests.
 - `tools/` — the engine build, the library build, the local server.
 - `tests/` — the checks; everything they save goes to `tests/out/`.
 
@@ -59,19 +58,18 @@ The module is built for `wasm32-wasip1` rather than `wasm32-unknown-unknown`: `a
 ## Checks
 
 ```sh
-node reference/eht-core.test.js             # the Hückel core from the reference
-node tests/engines.test.mjs                 # engines: Hückel against the reference, the basis, the character of xTB orbitals
+node tests/engines.test.mjs                 # the engine: the basis, the character of xTB orbitals
 node tests/md.test.mjs                      # dynamics: energy conservation, water for 10 ps at 300 K, BH3NH3 dissociation, the wall
 node tests/adduct.test.mjs                  # BH3 + NH3, brought together "by mouse", form the adduct
 node tests/experiments-screen.mjs           # experiment screening: some fifty pairs, brought together "by mouse" or heated, and what they yield
 node tests/md-dissociation.mjs              # at what temperature and after how long B–N breaks (8 runs per temperature)
 node engine/probe/compare.mjs               # WebAssembly against the native build: energy, forces, orbitals
-node tests/run-browser.mjs render-check.html   # rendering in headless Chromium: pixel comparison with the reference, screenshots, frame time
+node tests/run-browser.mjs render-check.html   # rendering in headless Chromium: the body from the grid against the exact evaluation, screenshots, frame time
 node tests/run-browser.mjs plane-check.html    # cutting plane: accuracy of the field on the cut, snapping, mouse control, screenshots
 node tests/run-browser.mjs md-check.html       # dynamics in the browser: start, pause, step, reset, steps per second, orbitals without flicker
 node tests/run-browser.mjs hands-check.html    # a second molecule, moving and rotating, grabbing a nucleus with a spring, the third color, the energy plot
 node tests/run-browser.mjs site-check.html     # the built dist/ site: works from a subfolder, requests nothing external, licenses and sources in place
-node tests/run-browser.mjs library-check.html  # every library molecule opens with both methods and runs in dynamics
+node tests/run-browser.mjs library-check.html  # every library molecule opens and runs in dynamics
 node tests/run-browser.mjs experiments-check.html  # every experiment in the list loads; those that run hands-free give the promised products
 node tests/run-browser.mjs speed-check.html    # frame time per molecule
 node tests/screenshot.mjs "mol=bh3nh3&wobble=0" tests/out/app.png   # a screenshot of the whole page
@@ -84,7 +82,7 @@ node tests/run-browser.mjs context-check.html --scale=1.875   # the WebGL contex
 node tests/run-browser.mjs gl-bisect.html --log               # after which GL call the context is lost
 ```
 
-URL parameters for the checks: `mol`, `engine` (`xtb`, `eht`), `orb` (`homo`, `lumo`, a number), `body`, `wobble`, `yaw`, `pitch`, `canvas=WxH`, `geom=ref` (the reference geometries), `bodygrid=0` (the body is computed exactly at every point of the ray), `plane` (`view`, `three:0,1,2`, `along:0,1`, `across:0,1`; the numbers are atom indices), `pmode` (`knife`, `sheet`), `pfield` (`psi`, `rho`), `poffset` (offset in Å), `second` (the second molecule), `experiment` (the experiment key), `md=run`, `temp` (K), `thermostat=0`, `speed` (fs/s, 0 for maximum), `dt` (fs), `seed`.
+URL parameters for the checks: `mol`, `orb` (`homo`, `lumo`, a number), `body`, `wobble`, `yaw`, `pitch`, `canvas=WxH`, `bodygrid=0` (the body is computed exactly at every point of the ray), `plane` (`view`, `three:0,1,2`, `along:0,1`, `across:0,1`; the numbers are atom indices), `pmode` (`knife`, `sheet`), `pfield` (`psi`, `rho`), `poffset` (offset in Å), `second` (the second molecule), `experiment` (the experiment key), `md=run`, `temp` (K), `thermostat=0`, `speed` (fs/s, 0 for maximum), `dt` (fs), `seed`.
 
 ## Licenses
 
@@ -101,4 +99,4 @@ The rest of the application code (JavaScript, shaders) talks to the module throu
 
 The other packages in the module (`faer`, `rayon` and their dependencies) are under MIT, Apache-2.0 and similar licenses; their texts are collected in `dist/licenses/third-party/`. Twelve MIT packages ship no license file of their own: for those, the standard MIT text is written out with the authors from the package manifest.
 
-The project itself (JavaScript, shaders, the wrapper) has no license chosen yet.
+The project itself (JavaScript, shaders, the wrapper) is under the MIT license, see `LICENSE`. The MIT license does not restrict changes to `axtb` or the rebuilding of the module, so it meets the LGPL. The build script copies `LICENSE` into `dist/licenses/` and `dist/source/xtb-wasm/`.

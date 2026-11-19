@@ -2,7 +2,7 @@
 // The basis set and the orbital coefficients come in as data textures, so the number of
 // atoms, shells and primitives per shell is whatever the engine reports.
 //
-// Looks (all approved on reference/fog-techniques-demo.html and eht-molecule-demo.html):
+// Looks:
 // absorption along the ray, soft translucent shells, lighting by the analytic gradient,
 // two colours by the sign of the wavefunction, dim grey "body" of the total valence density,
 // pale "ghost" for empty orbitals, nuclei as small glowing dots.

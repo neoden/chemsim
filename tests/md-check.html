@@ -102,11 +102,6 @@ try {
     note(`a non-converged step pauses with a message: "${text.slice(0, 70)}…"`, !s.md.running && /did not converge/.test(text) && d.getElementById('status').classList.contains('error'));
     c.md.pause();
   }
-  // ---- Hückel has no forces
-  {
-    const w = await openApp('mol=h2o&engine=eht'), d = w.document;
-    note('with the Hückel method the dynamics controls are disabled and say why', d.getElementById('md-run').disabled && /gives no forces/.test(d.getElementById('md-note').textContent));
-  }
 } catch (e) { out.ok = false; out.error = String(e.stack || e); }
 await report('done.json', JSON.stringify(out, null, 1));
 </script>

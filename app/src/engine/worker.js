@@ -1,7 +1,7 @@
-// Runs the quantum engines and the molecular dynamics off the main thread.
+// Runs the quantum engine (GFN2-xTB) and the molecular dynamics off the main thread.
 //
-// Engine interface. Request: { engine: 'xtb' | 'eht', numbers, positions (bohr, flat 3n),
-// charge, etemp (K), forces, unpaired (number of unpaired electrons, xtb only) }. Result: { ok, converged, error?, energy (Eh), forces (Eh/bohr)
+// Engine interface. Request: { numbers, positions (bohr, flat 3n),
+// charge, etemp (K), forces, unpaired (number of unpaired electrons) }. Result: { ok, converged, error?, energy (Eh), forces (Eh/bohr)
 // or null, eps (Eh), occ, coeff (nmo x nao, orbital by orbital), nao, nmo, shells, iterations }.
 // A shell is { atom, l, alpha[], coeff[] }: the radial part is sum_k coeff_k exp(-alpha_k r^2),
 // multiplied by 1 for l = 0 and by x, y, z (in this AO order) for l = 1.
@@ -13,20 +13,18 @@
 //   { type: 'md', cmd: 'set', params?, etemp?, speed?, unpaired?, grab? }   grab: { atom, target } or null
 //   { type: 'md', cmd: 'move', positions, wallRadius }           nuclei placed by hand
 // Messages out: compute results (with the request's id) and { type: 'md-frame', ... }.
-import { createEhtEngine } from './eht.js';
 import { createXtbEngine } from './xtb.js';
 import { Dynamics } from '../md.js';
 
-const engines = { eht: createEhtEngine() };
-let xtbLoading = null;
-async function engine(name) {
-  if (name === 'xtb' && !engines.xtb) {
+let xtb = null, xtbLoading = null;
+async function engine() {
+  if (!xtb) {
     xtbLoading ??= fetch(new URL('../../engine/xtb_wasm.wasm', import.meta.url))
       .then((r) => { if (!r.ok) throw new Error(`xtb_wasm.wasm: HTTP ${r.status}`); return r.arrayBuffer(); })
       .then(createXtbEngine);
-    engines.xtb = await xtbLoading;
+    xtb = await xtbLoading;
   }
-  return engines[name];
+  return xtb;
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -41,7 +39,7 @@ async function drain() {
     let res;
     const t0 = performance.now();
     try {
-      res = (await engine(req.engine)).compute(req);
+      res = (await engine()).compute(req);
     } catch (e) {
       res = { ok: false, converged: true, error: String(e?.message ?? e) };
     }
@@ -77,7 +75,7 @@ function fail() {
 }
 
 async function mdInit(msg) {
-  const xtb = await engine('xtb');
+  const xtb = await engine();
   const session = msg.session;
   const state = { speed: msg.speed, running: false, etemp: msg.etemp, unpaired: msg.unpaired, session, rate: 0 };
   state.dyn = new Dynamics({

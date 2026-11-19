@@ -10,7 +10,7 @@ const out = { ok: true, rows: [] };
 try {
   for (const mol of ['h2o', 'bh3nh3', 'c6h6', 'b3n3h6']) for (const body of [1, 0]) {
     const done = new Promise((r) => frame.addEventListener('load', r, { once: true }));
-    frame.src = `/app/index.html?engine=xtb&mol=${mol}&wobble=0&body=${body}&${extra}`;
+    frame.src = `/app/index.html?mol=${mol}&wobble=0&body=${body}&${extra}`;
     await done;
     const w = frame.contentWindow;
     while (!w.chemsim) await new Promise((r) => setTimeout(r, 20));

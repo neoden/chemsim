@@ -1,6 +1,5 @@
 <!doctype html><meta charset="utf-8"><title>render check</title>
 <style>body{margin:0;background:#222;color:#ccc;font:12px monospace}iframe{border:0;display:block}</style>
-<iframe id="demo" width="712" height="640" src="/reference/eht-molecule-demo.html"></iframe>
 <iframe id="app" width="1400" height="900"></iframe>
 <script type="module">
 const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
@@ -23,52 +22,14 @@ async function openApp(query) {
   await w.chemsim.ready;
   return w;
 }
-const out = { ok: true, compare: [], grid: [], xtb: [], speed: [] };
+const out = { ok: true, grid: [], xtb: [], speed: [] };
 try {
-  // ---- A. Hückel path against the reference demo, pixel by pixel
-  if (!only || only === 'eht') {
-  const demo = document.getElementById('demo');
-  while (!demo.contentDocument?.getElementById('mo-lv')?.children.length) await new Promise((r) => setTimeout(r, 50));
-  const dw = demo.contentWindow, dd = demo.contentDocument, cv = dd.getElementById('mo-cv');
-  dd.getElementById('mo-wob').checked = false;
-  const snapDemo = () => new Promise((res) => {
-    dd.getElementById('mo-body').dispatchEvent(new Event('change')); // marks the demo dirty: it redraws next frame
-    dw.requestAnimationFrame(() => {
-      const c = document.createElement('canvas'); c.width = cv.width; c.height = cv.height;
-      const ctx = c.getContext('2d'); ctx.drawImage(cv, 0, 0);
-      res({ data: ctx.getImageData(0, 0, c.width, c.height), url: c.toDataURL('image/png') });
-    });
-  });
-  await new Promise((r) => setTimeout(r, 300));
-  for (const mol of ['h2o', 'nh3', 'bh3', 'c2h4', 'pair']) {
-    const sel = dd.getElementById('mo-mol'); sel.value = mol; sel.dispatchEvent(new Event('change'));
-    for (const orb of ['homo', 'lumo']) {
-      [...dd.getElementById('mo-lv').children].find((b) => b.textContent.includes(orb.toUpperCase())).click();
-      const ref = await snapDemo();
-      const w = await openApp(`engine=eht&geom=ref&bodygrid=0&mol=${mol}&orb=${orb}&wobble=0&canvas=${cv.clientWidth}x${cv.clientHeight}`);
-      const url = w.chemsim.snapshot(), got = await toImageData(url);
-      let max = 0, sum = 0, over = 0;
-      const same = got.width === ref.data.width && got.height === ref.data.height;
-      if (same) for (let i = 0; i < got.data.length; i++) {
-        const d = Math.abs(got.data[i] - ref.data.data[i]);
-        if (d > max) max = d; sum += d; if (d > 2) over++;
-      }
-      const row = { mol, orb, size: `${got.width}x${got.height}`, sameSize: same, maxDiff: max, meanDiff: +(sum / got.data.length).toFixed(4), channelsOver2: over };
-      out.compare.push(row);
-      // a handful of isolated pixels may flip (sign of psi at a node differs between GPU backends)
-      if (!same || row.meanDiff > 0.5 || over > 30) out.ok = false;
-      await log('eht ' + JSON.stringify(row));
-      await report(`eht-${mol}-${orb}-demo.png`, ref.url);
-      await report(`eht-${mol}-${orb}-app.png`, url);
-    }
-  }
-  }
   // ---- C. body density from the 3D grid against the exact evaluation
   if (!only || only === 'grid') {
   for (const [mol, orb] of [['h2o', 'homo'], ['bh3nh3', 'homo'], ['c2h4', 'lumo'], ['c6h6', 'homo'], ['b2h6', 'lumo']]) {
     const shots = [];
     for (const g of [1, 0]) {
-      const w = await openApp(`engine=xtb&mol=${mol}&orb=${orb}&wobble=0&bodygrid=${g}&canvas=900x700`);
+      const w = await openApp(`mol=${mol}&orb=${orb}&wobble=0&bodygrid=${g}&canvas=900x700`);
       const url = w.chemsim.snapshot();
       shots.push(await toImageData(url));
       await report(`grid-${mol}-${orb}-${g ? 'grid' : 'exact'}.png`, url);
@@ -86,7 +47,7 @@ try {
   // ---- B. xTB pictures for looking at, and frame times
   if (!only || only === 'xtb') {
   for (const [mol, orb] of [['h2o', 'homo'], ['bh3', 'lumo'], ['c2h4', 'homo'], ['c2h4', 'lumo'], ['bh3nh3', 'homo'], ['c6h6', 'homo'], ['b2h6', 'homo']]) {
-    const w = await openApp(`engine=xtb&mol=${mol}&orb=${orb}&wobble=0`);
+    const w = await openApp(`mol=${mol}&orb=${orb}&wobble=0`);
     await report(`xtb-${mol}-${orb}.png`, w.chemsim.snapshot());
     out.xtb.push({ mol, orb, eV: +(w.chemsim.state.result.eps[w.chemsim.state.selected] * 27.211386).toFixed(3) });
     if (orb === 'homo') {
