@@ -4,7 +4,8 @@
 // charge, etemp (K), forces, unpaired (number of unpaired electrons) }. Result: { ok, converged, error?, energy (Eh), forces (Eh/bohr)
 // or null, eps (Eh), occ, coeff (nmo x nao, orbital by orbital), nao, nmo, shells, iterations }.
 // A shell is { atom, l, alpha[], coeff[] }: the radial part is sum_k coeff_k exp(-alpha_k r^2),
-// multiplied by 1 for l = 0 and by x, y, z (in this AO order) for l = 1.
+// multiplied by 1 for l = 0, by x, y, z (in this AO order) for l = 1, and by the five
+// quadratic polynomials listed in orbitals.js for l = 2.
 //
 // Messages in:
 //   { type: 'compute', id, ...request }   one calculation; if several pile up, only the newest runs

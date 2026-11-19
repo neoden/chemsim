@@ -1,6 +1,6 @@
 // A scene is one or two molecules of the library put side by side: elements, positions
 // (bohr, centred on the centroid) and, for every atom, the fragment it came from.
-import { NUMBERS, VALENCE } from './units.js';
+import { NUMBERS, VALENCE, COVALENT } from './units.js';
 
 // bohr between the facing atoms of two fragments when the second is added. Measured for
 // BH3 + NH3 at 300 K: from 6 bohr they bind on their own within 0.1–3 ps, from 8 bohr they
@@ -58,7 +58,6 @@ export function buildScene(first, second) {
 // bonds. Returns { piece: for every atom the number of its piece, count }.
 // (The fragments above record where an atom came from and never change; pieces follow what
 // has happened since: after a molecule falls apart, each part is its own piece.)
-const COVALENT = { H: 0.31, He: 0.28, Li: 1.28, Be: 0.96, B: 0.84, C: 0.76, N: 0.71, O: 0.66, F: 0.57, Na: 1.66, K: 2.03 }; // angstrom
 export function pieces(scene) {
   const n = scene.elements.length, p = scene.positions, piece = new Int32Array(n).fill(-1);
   let count = 0;
@@ -71,7 +70,7 @@ export function pieces(scene) {
       for (let j = 0; j < n; j++) {
         if (piece[j] >= 0) continue;
         const d = Math.hypot(p[3 * i] - p[3 * j], p[3 * i + 1] - p[3 * j + 1], p[3 * i + 2] - p[3 * j + 2]) * 0.529177210903;
-        if (d < Math.max(1.05, 1.3 * (COVALENT[scene.elements[i]] + COVALENT[scene.elements[j]]))) { piece[j] = count; stack.push(j); }
+        if (d < Math.max(1.05, 1.3 * (COVALENT[NUMBERS[scene.elements[i]]] + COVALENT[NUMBERS[scene.elements[j]]]))) { piece[j] = count; stack.push(j); }
       }
     }
     count++;

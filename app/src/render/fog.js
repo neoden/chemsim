@@ -18,11 +18,13 @@ void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Posit
 // Shared GLSL: the basis set as data textures.
 const BASIS_GLSL = `
 // uAtom: row 0 = xyz, cutoff radius^2; row 1 = first shell, shell count, fragment (0 or 1)
-// uShell: l, first primitive, primitive count, first AO
+// uShell: l, first primitive, primitive count, first AO. A shell has 2l+1 functions, l <= 2:
+// s; p: x, y, z; d: sqrt(3) xy, sqrt(3) yz, z2-(x2+y2)/2, sqrt(3) xz, sqrt(3)/2 (x2-y2)
 // uPrim: exponent, coefficient
 // uCoef: row 0 = selected orbital; rows 1..uNO = occupied orbitals times sqrt(occupation)
 uniform sampler2D uAtom,uShell,uPrim,uCoef;
 uniform int uNA,uNO;
+const float S32=0.8660254038; // sqrt(3)/2
 float cf(int ao,int row){return texelFetch(uCoef,ivec2(ao,row),0).x;}
 // selected orbital with its analytic gradient, split into the parts that sit on the atoms
 // of fragment 0 (pa, ga) and of fragment 1 (pb, gb); psi = pa + pb
@@ -47,10 +49,16 @@ R+=e;R1-=2.0*q.x*e;
 if(S.x==0){
 float c=cf(S.w,0);
 psi+=c*R;g+=c*R1*r;
-}else{
+}else if(S.x==1){
 vec3 c=vec3(cf(S.w,0),cf(S.w+1,0),cf(S.w+2,0));
 float cr=dot(c,r);
 psi+=cr*R;g+=cr*R1*r+c*R;
+}else{
+// d: the five functions together are a quadratic form, r.Qr times R; q = Qr
+float c0=cf(S.w,0),c1=cf(S.w+1,0),c2=cf(S.w+2,0),c3=cf(S.w+3,0),c4=cf(S.w+4,0);
+vec3 q=vec3(-0.5*c2+S32*c4,-0.5*c2-S32*c4,c2)*r+S32*vec3(c0*r.y+c3*r.z,c0*r.x+c1*r.z,c3*r.x+c1*r.y);
+float qr=dot(q,r);
+psi+=qr*R;g+=qr*R1*r+2.0*q*R;
 }
 }
 if(I3.z<0.5){pa+=psi;ga+=g;}else{pb+=psi;gb+=g;}
@@ -78,7 +86,13 @@ vec2 q=texelFetch(uPrim,ivec2(k,0),0).xy;
 R+=q.y*exp(-q.x*r2);
 }
 if(S.x==0){chi[n]=R;idx[n]=S.w;n++;}
-else{chi[n]=r.x*R;idx[n]=S.w;chi[n+1]=r.y*R;idx[n+1]=S.w+1;chi[n+2]=r.z*R;idx[n+2]=S.w+2;n+=3;}
+else if(S.x==1){chi[n]=r.x*R;idx[n]=S.w;chi[n+1]=r.y*R;idx[n+1]=S.w+1;chi[n+2]=r.z*R;idx[n+2]=S.w+2;n+=3;}
+else{
+float t=2.0*S32*R;
+chi[n]=t*r.x*r.y;chi[n+1]=t*r.y*r.z;chi[n+2]=(r.z*r.z-0.5*(r.x*r.x+r.y*r.y))*R;chi[n+3]=t*r.x*r.z;chi[n+4]=S32*R*(r.x*r.x-r.y*r.y);
+for(int j=0;j<5;j++)idx[n+j]=S.w+j;
+n+=5;
+}
 }
 }
 float rho=0.0;
@@ -293,7 +307,7 @@ function shellCutoff(shell, tol) {
   const value = (r) => {
     let v = 0;
     for (let k = 0; k < shell.alpha.length; k++) v += Math.abs(shell.coeff[k]) * Math.exp(-shell.alpha[k] * r * r);
-    return v * (shell.l ? r : 1);
+    return v * r ** shell.l;
   };
   let r = 30;
   while (r > 0.5 && value(r - 0.25) < tol) r -= 0.25;
@@ -428,9 +442,10 @@ export class FogRenderer {
       if (firstShell[sh.atom] < 0) firstShell[sh.atom] = s;
       shellCount[sh.atom]++;
       cut[sh.atom] = Math.max(cut[sh.atom], shellCutoff(sh, 3e-4));
+      if (sh.l > 2) throw new Error(`shell with l = ${sh.l} is not supported`);
       shellTex.set([sh.l, prims.length / 4, sh.alpha.length, ao], 4 * s);
       for (let k = 0; k < sh.alpha.length; k++) prims.push(sh.alpha[k], sh.coeff[k], 0, 0);
-      ao += sh.l ? 3 : 1;
+      ao += 2 * sh.l + 1;
     });
     if (ao !== nao) throw new Error(`basis has ${ao} functions, the engine reported ${nao}`);
     const atomTex = new Float32Array(8 * nat);

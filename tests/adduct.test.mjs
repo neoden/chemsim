@@ -32,7 +32,7 @@ fixSigns(res);
 let selected = frontier(res).homo;
 const weightOn = (r, m, atom) => {
   let w = 0, ao = 0;
-  for (const sh of r.shells) { const n = sh.l ? 3 : 1; if (sh.atom === atom) for (let i = 0; i < n; i++) w += r.coeff[m * r.nao + ao + i] ** 2; ao += n; }
+  for (const sh of r.shells) { const n = 2 * sh.l + 1; if (sh.atom === atom) for (let i = 0; i < n; i++) w += r.coeff[m * r.nao + ao + i] ** 2; ao += n; }
   return w;
 };
 const wN0 = weightOn(res, selected, N), wB0 = weightOn(res, selected, B);

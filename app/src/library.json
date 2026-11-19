@@ -23,7 +23,7 @@
     0
    ],
    "optimized": true,
-   "energy": -5.0705444504314885
+   "energy": -5.07054445042854
   },
   {
    "key": "nh3",
@@ -51,7 +51,7 @@
     -0.94389
    ],
    "optimized": true,
-   "energy": -4.42624403980821
+   "energy": -4.426244039687879
   },
   {
    "key": "ch4",
@@ -361,7 +361,7 @@
     -0.58223
    ],
    "optimized": true,
-   "energy": -2.7401267323869254
+   "energy": -2.740126732382638
   },
   {
    "key": "bh3nh3",
@@ -405,7 +405,7 @@
     -0.959955
    ],
    "optimized": true,
-   "energy": -7.202432019280692
+   "energy": -7.202432018567276
   },
   {
    "key": "pair",
@@ -449,7 +449,7 @@
     -0.937347
    ],
    "optimized": false,
-   "energy": -7.166528359243311,
+   "energy": -7.16652836523136,
    "note": "The geometry is set by hand: two fragments at a B–N distance of 3 Å, not optimized."
   },
   {
@@ -666,7 +666,7 @@
     0
    ],
    "optimized": true,
-   "energy": -6.271260610201592
+   "energy": -6.271260609984169
   },
   {
    "key": "c2h2",
@@ -1884,6 +1884,874 @@
    ],
    "optimized": true,
    "energy": -1.743126632945867
+  },
+  {
+   "key": "h2s",
+   "name": "H₂S, hydrogen sulfide",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "S",
+    "H",
+    "H"
+   ],
+   "xyz": [
+    -0.425415,
+    0,
+    0.44053,
+    0.901437,
+    0,
+    0.444833,
+    -0.476022,
+    0,
+    -0.885363
+   ],
+   "optimized": true,
+   "energy": -4.256278831637475
+  },
+  {
+   "key": "hcl",
+   "name": "HCl, hydrogen chloride",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "H",
+    "Cl"
+   ],
+   "xyz": [
+    -0.638507,
+    0,
+    0,
+    0.638507,
+    0,
+    0
+   ],
+   "optimized": true,
+   "energy": -5.052813509201533
+  },
+  {
+   "key": "cl2",
+   "name": "Cl₂, chlorine",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "Cl",
+    "Cl"
+   ],
+   "xyz": [
+    -1.008424,
+    0,
+    0,
+    1.008424,
+    0,
+    0
+   ],
+   "optimized": true,
+   "energy": -9.07932934775043
+  },
+  {
+   "key": "ph3",
+   "name": "PH₃, phosphine",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "P",
+    "H",
+    "H",
+    "H"
+   ],
+   "xyz": [
+    -0.311362,
+    0.354593,
+    0.330663,
+    1.07528,
+    0.338023,
+    0.315212,
+    -0.381959,
+    0.335654,
+    -1.054253,
+    -0.381959,
+    -1.02827,
+    0.408377
+   ],
+   "optimized": true,
+   "energy": -4.028871942969244
+  },
+  {
+   "key": "sih4",
+   "name": "SiH₄, silane",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "Si",
+    "H",
+    "H",
+    "H",
+    "H"
+   ],
+   "xyz": [
+    0,
+    0,
+    0,
+    0.843368,
+    0.843368,
+    0.843368,
+    0.843368,
+    -0.843368,
+    -0.843368,
+    -0.843368,
+    0.843368,
+    -0.843368,
+    -0.843368,
+    -0.843368,
+    0.843368
+   ],
+   "optimized": true,
+   "energy": -3.7638909122609565
+  },
+  {
+   "key": "ch3cl",
+   "name": "CH₃Cl, chloromethane",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "C",
+    "Cl",
+    "H",
+    "H",
+    "H"
+   ],
+   "xyz": [
+    -0.151383,
+    0,
+    0,
+    1.625785,
+    0,
+    0,
+    -0.491468,
+    0,
+    -1.030864,
+    -0.491468,
+    -0.892754,
+    0.515432,
+    -0.491468,
+    0.892754,
+    0.515432
+   ],
+   "optimized": true,
+   "energy": -8.210352759693029
+  },
+  {
+   "key": "ccl4",
+   "name": "CCl₄, carbon tetrachloride",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "C",
+    "Cl",
+    "Cl",
+    "Cl",
+    "Cl"
+   ],
+   "xyz": [
+    0,
+    0,
+    0,
+    1.021323,
+    1.021323,
+    1.021323,
+    1.021323,
+    -1.021323,
+    -1.021323,
+    -1.021323,
+    1.021323,
+    -1.021323,
+    -1.021323,
+    -1.021323,
+    1.021323
+   ],
+   "optimized": true,
+   "energy": -20.32187689996293
+  },
+  {
+   "key": "so2",
+   "name": "SO₂, sulfur dioxide",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "S",
+    "O",
+    "O"
+   ],
+   "xyz": [
+    -0.255872,
+    0,
+    0.434384,
+    1.177951,
+    0,
+    0.401314,
+    -0.922079,
+    0,
+    -0.835698
+   ],
+   "optimized": true,
+   "energy": -11.367487092068888
+  },
+  {
+   "key": "so3",
+   "name": "SO₃, sulfur trioxide",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "S",
+    "O",
+    "O",
+    "O"
+   ],
+   "xyz": [
+    0,
+    0,
+    0,
+    1.417899,
+    0,
+    0,
+    -0.708949,
+    0,
+    -1.227937,
+    -0.708949,
+    0,
+    1.227937
+   ],
+   "optimized": true,
+   "energy": -15.40045542423513
+  },
+  {
+   "key": "h2so4",
+   "name": "H₂SO₄, sulfuric acid",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "S",
+    "O",
+    "O",
+    "O",
+    "O",
+    "H",
+    "H"
+   ],
+   "xyz": [
+    0.219993,
+    0.004297,
+    -0.361448,
+    1.634658,
+    -0.018374,
+    -0.306706,
+    -0.478652,
+    0.043267,
+    -1.592353,
+    -0.314523,
+    -1.227789,
+    0.480284,
+    -0.297209,
+    1.212809,
+    0.524386,
+    0.387976,
+    -1.47417,
+    1.079577,
+    -1.152244,
+    1.459961,
+    0.17626
+   ],
+   "optimized": true,
+   "energy": -20.551860040527593
+  },
+  {
+   "key": "h3po4",
+   "name": "H₃PO₄, phosphoric acid",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "P",
+    "O",
+    "O",
+    "O",
+    "O",
+    "H",
+    "H",
+    "H"
+   ],
+   "xyz": [
+    0.133164,
+    0,
+    0,
+    1.597747,
+    0,
+    0,
+    -0.548185,
+    -0.017457,
+    -1.43407,
+    -0.548185,
+    -1.233212,
+    0.732153,
+    -0.548185,
+    1.250669,
+    0.701917,
+    -0.028785,
+    -0.558153,
+    -2.025436,
+    -0.028785,
+    -1.475003,
+    1.496093,
+    -0.028785,
+    2.033156,
+    0.529343
+   ],
+   "optimized": true,
+   "energy": -20.458430423412924
+  },
+  {
+   "key": "pcl5",
+   "name": "PCl₅, phosphorus pentachloride",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "P",
+    "Cl",
+    "Cl",
+    "Cl",
+    "Cl",
+    "Cl"
+   ],
+   "xyz": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    2.155893,
+    0,
+    0,
+    -2.155893,
+    2.027068,
+    0,
+    0,
+    -1.013534,
+    1.755492,
+    0,
+    -1.013534,
+    -1.755492,
+    0
+   ],
+   "optimized": true,
+   "energy": -25.386589014005466
+  },
+  {
+   "key": "sf6",
+   "name": "SF₆, sulfur hexafluoride",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "S",
+    "F",
+    "F",
+    "F",
+    "F",
+    "F",
+    "F"
+   ],
+   "xyz": [
+    0,
+    0,
+    0,
+    1.590365,
+    0,
+    0,
+    -1.590365,
+    0,
+    0,
+    0,
+    1.590365,
+    0,
+    0,
+    -1.590365,
+    0,
+    0,
+    0,
+    1.590365,
+    0,
+    0,
+    -1.590365
+   ],
+   "optimized": true,
+   "energy": -31.755200401905853
+  },
+  {
+   "key": "nacl",
+   "name": "NaCl, sodium chloride",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "Na",
+    "Cl"
+   ],
+   "xyz": [
+    -1.122684,
+    0,
+    0,
+    1.122684,
+    0,
+    0
+   ],
+   "optimized": true,
+   "energy": -4.820469572941513
+  },
+  {
+   "key": "mgcl2",
+   "name": "MgCl₂, magnesium chloride",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "Cl",
+    "Mg",
+    "Cl"
+   ],
+   "xyz": [
+    -2.118747,
+    0,
+    0,
+    0,
+    0,
+    0,
+    2.118747,
+    0,
+    0
+   ],
+   "optimized": true,
+   "energy": -9.737696481328213
+  },
+  {
+   "key": "alcl3",
+   "name": "AlCl₃, aluminium chloride",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "Al",
+    "Cl",
+    "Cl",
+    "Cl"
+   ],
+   "xyz": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    2.029864,
+    0,
+    -1.757913,
+    -1.014932,
+    0,
+    1.757913,
+    -1.014932
+   ],
+   "optimized": true,
+   "energy": -14.925989621509984
+  },
+  {
+   "key": "ne",
+   "name": "Ne, neon atom",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "Ne"
+   ],
+   "xyz": [
+    0,
+    0,
+    0
+   ],
+   "optimized": true,
+   "energy": -5.9322150527578525
+  },
+  {
+   "key": "ar",
+   "name": "Ar, argon atom",
+   "group": "Third period",
+   "charge": 0,
+   "elements": [
+    "Ar"
+   ],
+   "xyz": [
+    0,
+    0,
+    0
+   ],
+   "optimized": true,
+   "energy": -4.279043267589938
+  },
+  {
+   "key": "ticl4",
+   "name": "TiCl₄, titanium tetrachloride",
+   "group": "d metals",
+   "charge": 0,
+   "elements": [
+    "Ti",
+    "Cl",
+    "Cl",
+    "Cl",
+    "Cl"
+   ],
+   "xyz": [
+    0,
+    0,
+    0,
+    1.218895,
+    1.218895,
+    1.218895,
+    1.218895,
+    -1.218895,
+    -1.218895,
+    -1.218895,
+    1.218895,
+    -1.218895,
+    -1.218895,
+    -1.218895,
+    1.218895
+   ],
+   "optimized": true,
+   "energy": -20.052485036012204,
+   "note": "The five lowest empty orbitals are the d orbitals of titanium: the tetrahedron of chlorines splits them into a pair below and a triple above."
+  },
+  {
+   "key": "nico4",
+   "name": "Ni(CO)₄, nickel carbonyl",
+   "group": "d metals",
+   "charge": 0,
+   "elements": [
+    "Ni",
+    "C",
+    "C",
+    "C",
+    "C",
+    "O",
+    "O",
+    "O",
+    "O"
+   ],
+   "xyz": [
+    0,
+    0,
+    0,
+    1.04832,
+    1.04832,
+    1.04832,
+    1.04832,
+    -1.04832,
+    -1.04832,
+    -1.04832,
+    1.04832,
+    -1.04832,
+    -1.04832,
+    -1.04832,
+    1.04832,
+    1.702067,
+    1.702067,
+    1.702067,
+    1.702067,
+    -1.702067,
+    -1.702067,
+    -1.702067,
+    1.702067,
+    -1.702067,
+    -1.702067,
+    -1.702067,
+    1.702067
+   ],
+   "optimized": true,
+   "energy": -29.551832828259847,
+   "note": "Nickel has all five d orbitals filled: they are the highest occupied orbitals of the molecule."
+  },
+  {
+   "key": "feco5",
+   "name": "Fe(CO)₅, iron pentacarbonyl",
+   "group": "d metals",
+   "charge": 0,
+   "elements": [
+    "Fe",
+    "C",
+    "C",
+    "C",
+    "C",
+    "C",
+    "O",
+    "O",
+    "O",
+    "O",
+    "O"
+   ],
+   "xyz": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    1.772466,
+    0,
+    0,
+    -1.772466,
+    1.802751,
+    0,
+    0,
+    -0.901375,
+    1.561228,
+    0,
+    -0.901375,
+    -1.561228,
+    0,
+    0,
+    0,
+    2.914305,
+    0,
+    0,
+    -2.914305,
+    2.944625,
+    0,
+    0,
+    -1.472313,
+    2.55012,
+    0,
+    -1.472313,
+    -2.55012,
+    0
+   ],
+   "optimized": true,
+   "energy": -34.0874618804965
+  },
+  {
+   "key": "crco6",
+   "name": "Cr(CO)₆, chromium hexacarbonyl",
+   "group": "d metals",
+   "charge": 0,
+   "elements": [
+    "Cr",
+    "C",
+    "C",
+    "C",
+    "C",
+    "C",
+    "C",
+    "O",
+    "O",
+    "O",
+    "O",
+    "O",
+    "O"
+   ],
+   "xyz": [
+    0,
+    0.000001,
+    0,
+    1.880591,
+    0,
+    0,
+    -1.880591,
+    0,
+    0,
+    0,
+    1.880591,
+    0,
+    0,
+    -1.880591,
+    0,
+    0,
+    0,
+    1.880591,
+    0,
+    0,
+    -1.880591,
+    3.023813,
+    0,
+    0,
+    -3.023813,
+    0,
+    0,
+    0,
+    3.023813,
+    0,
+    0,
+    -3.023813,
+    0,
+    0,
+    0,
+    3.023813,
+    0,
+    0,
+    -3.023813
+   ],
+   "optimized": true,
+   "energy": -39.160927632642135,
+   "note": "The three highest occupied orbitals are the chromium d orbitals that point between the CO groups (dxy, dyz, dxz); the two that point at them (dz², dx²−y²) are empty."
+  },
+  {
+   "key": "ferrocene",
+   "name": "Fe(C₅H₅)₂, ferrocene",
+   "group": "d metals",
+   "charge": 0,
+   "elements": [
+    "Fe",
+    "C",
+    "C",
+    "C",
+    "C",
+    "C",
+    "H",
+    "H",
+    "H",
+    "H",
+    "H",
+    "C",
+    "C",
+    "C",
+    "C",
+    "C",
+    "H",
+    "H",
+    "H",
+    "H",
+    "H"
+   ],
+   "xyz": [
+    0,
+    0,
+    0,
+    1.202436,
+    0,
+    1.792582,
+    0.371573,
+    1.143584,
+    1.792582,
+    -0.972791,
+    0.706774,
+    1.792582,
+    -0.972791,
+    -0.706774,
+    1.792582,
+    0.371573,
+    -1.143584,
+    1.792582,
+    2.277388,
+    0,
+    1.853371,
+    0.703751,
+    2.165924,
+    1.853371,
+    -1.842445,
+    1.338615,
+    1.853371,
+    -1.842445,
+    -1.338615,
+    1.853371,
+    0.703751,
+    -2.165924,
+    1.853371,
+    1.202436,
+    0,
+    -1.792582,
+    0.371573,
+    1.143584,
+    -1.792582,
+    -0.972791,
+    0.706774,
+    -1.792582,
+    -0.972791,
+    -0.706774,
+    -1.792582,
+    0.371573,
+    -1.143584,
+    -1.792582,
+    2.277388,
+    0,
+    -1.853371,
+    0.703751,
+    2.165924,
+    -1.853371,
+    -1.842445,
+    1.338615,
+    -1.853371,
+    -1.842445,
+    -1.338615,
+    -1.853371,
+    0.703751,
+    -2.165924,
+    -1.853371
+   ],
+   "optimized": true,
+   "energy": -29.584684573589456,
+   "note": "The frontier orbitals are the five d orbitals of iron: three filled (dz², dxy, dx²−y²) and, above them, two empty (dxz, dyz)."
+  },
+  {
+   "key": "mno4-",
+   "name": "MnO₄⁻, permanganate",
+   "group": "d metals",
+   "charge": -1,
+   "elements": [
+    "Mn",
+    "O",
+    "O",
+    "O",
+    "O"
+   ],
+   "xyz": [
+    0,
+    0,
+    0,
+    0.868495,
+    0.868495,
+    0.868495,
+    0.868495,
+    -0.868495,
+    -0.868495,
+    -0.868495,
+    0.868495,
+    -0.868495,
+    -0.868495,
+    -0.868495,
+    0.868495
+   ],
+   "optimized": true,
+   "energy": -19.407715586800403
+  },
+  {
+   "key": "cl-",
+   "name": "Cl⁻, chloride",
+   "group": "Ions",
+   "charge": -1,
+   "elements": [
+    "Cl"
+   ],
+   "xyz": [
+    0,
+    0,
+    0
+   ],
+   "optimized": true,
+   "energy": -4.7851339537609645
+  },
+  {
+   "key": "cl",
+   "name": "Cl·, chlorine atom",
+   "group": "Radicals",
+   "charge": 0,
+   "elements": [
+    "Cl"
+   ],
+   "xyz": [
+    0,
+    0,
+    0
+   ],
+   "optimized": true,
+   "energy": -4.48252513667102
   },
   {
    "key": "f-",

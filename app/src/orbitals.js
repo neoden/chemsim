@@ -19,39 +19,76 @@ export function frontier(result) {
   return { homo, lumo: homo + 1 < result.nmo ? homo + 1 : -1 };
 }
 
+// Functions of a shell, in the order of the engine interface. Each is the radial part of the
+// shell times a polynomial of the displacement from the nucleus:
+//   s;  p: x, y, z;  d: sqrt(3) xy, sqrt(3) yz, z^2 - (x^2 + y^2)/2, sqrt(3) xz, sqrt(3)/2 (x^2 - y^2).
+// The contraction coefficients of a shell carry the normalization of its x^l function, and
+// these factors make the other functions of the shell normalized too.
+const S3 = Math.sqrt(3);
+export const AO_LABELS = [['s'], ['px', 'py', 'pz'], ['dxy', 'dyz', 'dz²', 'dxz', 'dx²−y²']];
+// Cartesian monomials x^i y^j z^k of a shell, and the functions above as their combinations
+const CART = [[[0, 0, 0]], [[1, 0, 0], [0, 1, 0], [0, 0, 1]], [[2, 0, 0], [1, 1, 0], [1, 0, 1], [0, 2, 0], [0, 1, 1], [0, 0, 2]]];
+const COMBO = [[[1]], [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+  [[0, S3, 0, 0, 0, 0], [0, 0, 0, 0, S3, 0], [-0.5, 0, 0, -0.5, 0, 1], [0, 0, S3, 0, 0, 0], [S3 / 2, 0, 0, -S3 / 2, 0, 0]]];
+
+// Values of the 2l + 1 functions of a shell at displacement (x, y, z) from its nucleus,
+// written to out[at...]. The reference the shader is checked against.
+export function shellValues(sh, x, y, z, out, at = 0) {
+  const r2 = x * x + y * y + z * z;
+  let R = 0;
+  for (let k = 0; k < sh.alpha.length; k++) R += sh.coeff[k] * Math.exp(-sh.alpha[k] * r2);
+  if (sh.l === 0) out[at] = R;
+  else if (sh.l === 1) { out[at] = R * x; out[at + 1] = R * y; out[at + 2] = R * z; }
+  else {
+    out[at] = S3 * R * x * y; out[at + 1] = S3 * R * y * z; out[at + 2] = R * (z * z - 0.5 * (x * x + y * y));
+    out[at + 3] = S3 * R * x * z; out[at + 4] = 0.5 * S3 * R * (x * x - y * y);
+  }
+  return 2 * sh.l + 1;
+}
+
 // Human-readable makeup of orbital m: the largest AO coefficients.
 export function describe(result, elements, m, threshold = 0.25) {
   const labels = [];
   for (const sh of result.shells)
-    for (const t of sh.l ? ['px', 'py', 'pz'] : ['s']) labels.push(`${elements[sh.atom]}${sh.atom}${t}`);
+    for (const t of AO_LABELS[sh.l]) labels.push(`${elements[sh.atom]}${sh.atom}${t}`);
   const c = result.coeff.subarray(m * result.nao, (m + 1) * result.nao);
   return Array.from(c, (v, i) => [v, labels[i]]).filter(([v]) => Math.abs(v) > threshold);
 }
 
 // Overlap matrix of the basis functions (nao x nao, row-major) from the shells and the atom
-// positions (bohr): analytic integrals of contracted s and p Gaussians.
+// positions (bohr): analytic integrals of contracted s, p and d Gaussians, shell pair by
+// shell pair. A primitive integral is a product of three one-dimensional ones, which come
+// from the Obara–Saika recurrence.
 export function overlapMatrix(shells, positions) {
-  const fns = []; // one entry per AO: shell, centre, component (-1 for s, 0..2 for p)
-  for (const sh of shells) {
-    const c = [positions[3 * sh.atom], positions[3 * sh.atom + 1], positions[3 * sh.atom + 2]];
-    for (const k of sh.l ? [0, 1, 2] : [-1]) fns.push({ sh, c, k });
-  }
-  const n = fns.length, S = new Float64Array(n * n);
-  for (let i = 0; i < n; i++) for (let j = i; j < n; j++) {
-    const A = fns[i], B = fns[j];
-    const ab2 = (A.c[0] - B.c[0]) ** 2 + (A.c[1] - B.c[1]) ** 2 + (A.c[2] - B.c[2]) ** 2;
-    let s = 0;
-    for (let p = 0; p < A.sh.alpha.length; p++) for (let q = 0; q < B.sh.alpha.length; q++) {
-      const a = A.sh.alpha[p], b = B.sh.alpha[q], g = a + b;
-      let f = Math.pow(Math.PI / g, 1.5) * Math.exp(-a * b / g * ab2);
-      if (A.k >= 0 || B.k >= 0) {
-        const pa = A.k >= 0 ? (a * A.c[A.k] + b * B.c[A.k]) / g - A.c[A.k] : 1;
-        const pb = B.k >= 0 ? (a * A.c[B.k] + b * B.c[B.k]) / g - B.c[B.k] : 1;
-        f *= pa * pb + (A.k >= 0 && A.k === B.k ? 0.5 / g : 0);
+  const first = [];
+  let n = 0;
+  for (const sh of shells) { first.push(n); n += 2 * sh.l + 1; }
+  const S = new Float64Array(n * n), cart = new Float64Array(36);
+  const X = [new Float64Array(9), new Float64Array(9), new Float64Array(9)]; // X[axis][3 i + j]: powers i on A, j on B
+  for (let sa = 0; sa < shells.length; sa++) for (let sb = 0; sb <= sa; sb++) {
+    const A = shells[sa], B = shells[sb], la = A.l, lb = B.l, ca = CART[la], cb = CART[lb];
+    const pa = positions.subarray(3 * A.atom, 3 * A.atom + 3), pb = positions.subarray(3 * B.atom, 3 * B.atom + 3);
+    const ab2 = (pa[0] - pb[0]) ** 2 + (pa[1] - pb[1]) ** 2 + (pa[2] - pb[2]) ** 2;
+    cart.fill(0);
+    for (let p = 0; p < A.alpha.length; p++) for (let q = 0; q < B.alpha.length; q++) {
+      const a = A.alpha[p], b = B.alpha[q], g = a + b, h = 0.5 / g;
+      const f = A.coeff[p] * B.coeff[q] * Math.pow(Math.PI / g, 1.5) * Math.exp(-a * b / g * ab2);
+      for (let d = 0; d < 3; d++) {
+        const c = (a * pa[d] + b * pb[d]) / g, PA = c - pa[d], PB = c - pb[d], t = X[d];
+        t[0] = 1;
+        for (let i = 1; i <= la; i++) t[3 * i] = PA * t[3 * i - 3] + (i > 1 ? (i - 1) * h * t[3 * i - 6] : 0);
+        for (let i = 0; i <= la; i++) for (let j = 1; j <= lb; j++)
+          t[3 * i + j] = PB * t[3 * i + j - 1] + (i ? i * h * t[3 * i - 3 + j - 1] : 0) + (j > 1 ? (j - 1) * h * t[3 * i + j - 2] : 0);
       }
-      s += A.sh.coeff[p] * B.sh.coeff[q] * f;
+      for (let u = 0; u < ca.length; u++) for (let v = 0; v < cb.length; v++)
+        cart[6 * u + v] += f * X[0][3 * ca[u][0] + cb[v][0]] * X[1][3 * ca[u][1] + cb[v][1]] * X[2][3 * ca[u][2] + cb[v][2]];
     }
-    S[i * n + j] = S[j * n + i] = s;
+    const ka = COMBO[la], kb = COMBO[lb];
+    for (let i = 0; i < ka.length; i++) for (let j = 0; j < kb.length; j++) {
+      let s = 0;
+      for (let u = 0; u < ca.length; u++) if (ka[i][u]) for (let v = 0; v < cb.length; v++) s += ka[i][u] * kb[j][v] * cart[6 * u + v];
+      S[(first[sa] + i) * n + first[sb] + j] = S[(first[sb] + j) * n + first[sa] + i] = s;
+    }
   }
   return S;
 }

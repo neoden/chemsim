@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createXtbEngine } from '../app/src/engine/xtb.js';
-import { fixSigns, frontier, describe } from '../app/src/orbitals.js';
+import { fixSigns, frontier, describe, shellValues, overlapMatrix } from '../app/src/orbitals.js';
 import { BOHR_ANGSTROM, HARTREE_EV, NUMBERS } from '../app/src/units.js';
 
 const root = new URL('../', import.meta.url);
@@ -26,18 +26,12 @@ const ok = (cond, msg) => { assert.ok(cond, msg); checks++; console.log('  ok  '
 
 console.log('basis description through the interface: electrons on a grid');
 function electrons(m, r, h = 0.14, L = 8) {
-  const aos = [];
-  for (const sh of r.shells) for (const k of sh.l ? [0, 1, 2] : [-1]) aos.push({ sh, k, c: m.positions.subarray(3 * sh.atom, 3 * sh.atom + 3) });
-  const n = Math.round(2 * L / h), ao = new Float64Array(aos.length);
+  const n = Math.round(2 * L / h), ao = new Float64Array(r.nao);
   let total = 0;
   for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let k = 0; k < n; k++) {
     const p = [-L + (i + 0.5) * h, -L + (j + 0.5) * h, -L + (k + 0.5) * h];
-    aos.forEach(({ sh, k, c }, q) => {
-      const d = [p[0] - c[0], p[1] - c[1], p[2] - c[2]], r2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
-      let v = 0;
-      for (let t = 0; t < sh.alpha.length; t++) v += sh.coeff[t] * Math.exp(-sh.alpha[t] * r2);
-      ao[q] = k < 0 ? v : v * d[k];
-    });
+    let at = 0;
+    for (const sh of r.shells) at += shellValues(sh, p[0] - m.positions[3 * sh.atom], p[1] - m.positions[3 * sh.atom + 1], p[2] - m.positions[3 * sh.atom + 2], ao, at);
     for (let o = 0; o < r.nmo; o++) {
       if (r.occ[o] < 1e-12) continue;
       let psi = 0;
@@ -50,6 +44,9 @@ function electrons(m, r, h = 0.14, L = 8) {
 for (const [name, engine] of [['xtb', xtb]]) {
   const m = mol('h2o'), ne = electrons(m, run(engine, m));
   ok(Math.abs(ne - 8) < 2e-3, `${name}, water: ${ne.toFixed(4)} electrons (expected 8)`);
+  // sulfur brings a d shell
+  const s = mol('h2s'), nd = electrons(s, run(engine, s));
+  ok(Math.abs(nd - 8) < 2e-3, `${name}, hydrogen sulfide (s, p and d functions): ${nd.toFixed(4)} electrons (expected 8)`);
 }
 
 console.log('character of the xTB frontier orbitals');
@@ -67,7 +64,7 @@ function piAnalysis(r, k, axis) {
   const c = r.coeff.subarray(k * r.nao, (k + 1) * r.nao), along = {};
   let rest = 0, ao = 0;
   for (const sh of r.shells) {
-    if (sh.l === 0) { rest += c[ao] ** 2; ao += 1; continue; }
+    if (sh.l !== 1) { for (let i = 0; i < 2 * sh.l + 1; i++) rest += c[ao + i] ** 2; ao += 2 * sh.l + 1; continue; }
     const v = [c[ao], c[ao + 1], c[ao + 2]], a = v[0] * axis[0] + v[1] * axis[1] + v[2] * axis[2];
     along[sh.atom] = a;
     rest += v[0] ** 2 + v[1] ** 2 + v[2] ** 2 - a * a;
@@ -94,11 +91,35 @@ function piAnalysis(r, k, axis) {
   const f = Math.max(...r.forces.map(Math.abs));
   ok(f < 5e-5, `library geometry of BH3NH3 is a stationary point of the engine: max force ${f.toExponential(1)} Eh/bohr`);
 }
+// squared weight of the d functions of atom `atom` in orbital k
+function dWeight(r, k, atom) {
+  let w = 0, ao = 0;
+  for (const sh of r.shells) { const n = 2 * sh.l + 1; if (sh.l === 2 && sh.atom === atom) for (let i = 0; i < n; i++) w += r.coeff[k * r.nao + ao + i] ** 2; ao += n; }
+  return w;
+}
+{
+  // a d metal: the five lowest empty orbitals of TiCl4 are the titanium d orbitals, split
+  // by the tetrahedron into a pair (e) below a triple (t2)
+  const m = mol('ticl4'), r = run(xtb, m), { lumo } = frontier(r);
+  const w = [0, 1, 2, 3, 4].map((i) => dWeight(r, lumo + i, 0)), e = (i) => r.eps[lumo + i] * HARTREE_EV;
+  ok(Math.min(...w) > 0.5, `the five lowest empty orbitals of TiCl4 are mostly titanium d: weights ${w.map((v) => v.toFixed(2)).join(' ')}`);
+  ok(e(1) - e(0) < 0.02 && e(4) - e(2) < 0.02 && e(2) - e(1) > 0.3, `they split into e below t2: ${[0, 1, 2, 3, 4].map((i) => e(i).toFixed(2)).join(' ')} eV`);
+}
+for (const key of ['sf6', 'ticl4', 'feco5']) {
+  const m = mol(key), r = run(xtb, m), S = overlapMatrix(r.shells, m.positions), n = r.nao;
+  let err = 0;
+  for (let i = 0; i < r.nmo; i++) for (let j = 0; j <= i; j++) {
+    let t = 0;
+    for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) t += r.coeff[i * n + a] * S[a * n + b] * r.coeff[j * n + b];
+    err = Math.max(err, Math.abs(t - (i === j ? 1 : 0)));
+  }
+  ok(err < 1e-8, `${key}: orbitals with d functions are orthonormal in the analytic overlap matrix (max deviation ${err.toExponential(1)})`);
+}
 console.log(`${checks} checks passed`);
 
 // ---- appended for stage 3: overlap matrix and orbital continuity
 {
-  const { overlapMatrix, followOrbitals } = await import('../app/src/orbitals.js');
+  const { followOrbitals } = await import('../app/src/orbitals.js');
   console.log('overlap matrix and orbital continuity');
   for (const [name, engine] of [['xtb', xtb]]) {
     const m = mol('bh3nh3'), r = run(engine, m), S = overlapMatrix(r.shells, m.positions), n = r.nao;

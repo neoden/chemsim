@@ -167,7 +167,7 @@ try {
   await report('hands-adduct.png', c.snapshot());
   {
     // the pair that nitrogen shares with boron is the lowest orbital with weight on both
-    const r = s.result, weight = (m, atom) => { let wgt = 0, ao = 0; for (const sh of r.shells) { const n = sh.l ? 3 : 1; if (sh.atom === atom) for (let i = 0; i < n; i++) wgt += r.coeff[m * r.nao + ao + i] ** 2; ao += n; } return wgt; };
+    const r = s.result, weight = (m, atom) => { let wgt = 0, ao = 0; for (const sh of r.shells) { const n = 2 * sh.l + 1; if (sh.atom === atom) for (let i = 0; i < n; i++) wgt += r.coeff[m * r.nao + ao + i] ** 2; ao += n; } return wgt; };
     let bond = -1;
     for (let m = 0; m < r.nmo && r.occ[m] > 1; m++) if (weight(m, N) > 0.3 && weight(m, B) > 0.05 && (bond < 0 || weight(m, B) > weight(bond, B))) bond = m;
     c.selectOrbital(bond);

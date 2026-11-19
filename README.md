@@ -4,7 +4,7 @@ A browser-based chemistry simulator at the level of atoms.
 
 Status: stage 0 (engine probe), stage 1 (static viewer on the new engine), stage 2 (cutting plane), stage 3 (dynamics), stage 4 (hands-on interaction) and stage 5 (build for demonstration) are complete. The first version is ready.
 
-Elements: H, He, Li, Be, B, C, N, O, F, Na, K — the ones for which GFN2-xTB needs only s and p functions (the renderer does not draw anything else yet). The engine handles every element up to Rn; adding Si, P, S, Cl and the metals requires teaching the shader d functions.
+Elements: the first 36, H to Kr. GFN2-xTB describes them with s, p and d functions (d from Ne on, except Na, K and Zn; it has no f functions), and the renderer draws all three kinds. For the main-group elements the d functions only add flexibility; for the d metals, Sc to Cu, they are the valence orbitals themselves. The engine handles every element up to Rn; going past Kr only needs more rows in the tables of `app/src/units.js`.
 
 Unpaired electrons: the engine is given their number (two for O₂, one for radicals). The scene sets it, and it can be changed under "Settings" in the dynamics panel. Spin only decides how electrons are distributed over the orbitals; GFN2-xTB knows no energy difference between "up" and "down".
 
@@ -30,7 +30,7 @@ The contents of `dist/` are the finished site: plain static files with relative 
   - `src/engine/` — the engine `xtb.js` (GFN2-xTB in WebAssembly) behind the interface described in `worker.js`. It runs in a Web Worker; stale requests are dropped.
   - `src/render/fog.js` — the renderer: ray marching in WebGL2, with the basis and coefficients in data textures; the plane cut lives here too.
   - `src/md.js` — molecular dynamics: integrator, thermostat, wall. No DOM, so it runs both in a Worker and in Node.
-  - `src/orbitals.js` — signs, the overlap matrix, matching orbitals between frames.
+  - `src/orbitals.js` — the basis functions of a shell (s, p, d) and their order, signs, the overlap matrix, matching orbitals between frames.
   - `src/experiments.js` — the list of ready-made experiments: molecules, settings, a hint and the expected products.
   - `src/scene.js` — a scene of one or two molecules, moving and rotating a fragment.
   - `src/chart.js` — the plot of energy over time.
@@ -58,7 +58,7 @@ The module is built for `wasm32-wasip1` rather than `wasm32-unknown-unknown`: `a
 ## Checks
 
 ```sh
-node tests/engines.test.mjs                 # the engine: the basis, the character of xTB orbitals
+node tests/engines.test.mjs                 # the engine: the basis with its d functions, the character of xTB orbitals
 node tests/md.test.mjs                      # dynamics: energy conservation, water for 10 ps at 300 K, BH3NH3 dissociation, the wall
 node tests/adduct.test.mjs                  # BH3 + NH3, brought together "by mouse", form the adduct
 node tests/experiments-screen.mjs           # experiment screening: some fifty pairs, brought together "by mouse" or heated, and what they yield

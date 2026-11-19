@@ -5,6 +5,7 @@
 // Stage 2 checks: the field drawn on the cut is the exact field (compared with a CPU
 // evaluation in double precision), the snaps put the plane where they should, and
 // pictures of both modes for looking at.
+import { shellValues } from '/app/src/orbitals.js';
 const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
 const frame = document.getElementById('app');
 const out = { ok: true, exact: [], snaps: [], mouse: [] };
@@ -19,13 +20,9 @@ async function openApp(query) {
 }
 // psi of orbital m, or sqrt(rho), at point p from an engine result
 function cpuField(res, pos, m, field, p) {
-  const ao = [];
-  for (const sh of res.shells) {
-    const d = [0, 1, 2].map((k) => p[k] - pos[3 * sh.atom + k]), r2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
-    let R = 0;
-    for (let k = 0; k < sh.alpha.length; k++) R += sh.coeff[k] * Math.exp(-sh.alpha[k] * r2);
-    if (sh.l) ao.push(R * d[0], R * d[1], R * d[2]); else ao.push(R);
-  }
+  const ao = new Float64Array(res.nao);
+  let at = 0;
+  for (const sh of res.shells) at += shellValues(sh, p[0] - pos[3 * sh.atom], p[1] - pos[3 * sh.atom + 1], p[2] - pos[3 * sh.atom + 2], ao, at);
   const mo = (k) => ao.reduce((s, v, i) => s + res.coeff[k * res.nao + i] * v, 0);
   if (field === 'psi') return mo(m);
   let rho = 0;
@@ -36,6 +33,9 @@ try {
   for (const [q, name] of [
     ['mol=h2o&orb=2&plane=three:0,1,2', 'h2o psi'], ['mol=c2h4&orb=homo&plane=across:0,1&poffset=0.3', 'c2h4 psi'],
     ['mol=c6h6&orb=homo&plane=along:0,3&pfield=rho', 'c6h6 rho'], ['mol=bh3nh3&orb=homo&plane=along:0,4', 'bh3nh3 psi'],
+    // d functions: on sulfur as polarization, on a metal as the orbital itself
+    ['mol=so2&orb=homo&plane=three:0,1,2', 'so2 psi'], ['mol=sf6&orb=lumo&plane=three:0,1,3&pfield=rho', 'sf6 rho'],
+    ['mol=ticl4&orb=lumo&plane=three:0,1,2', 'ticl4 psi'], ['mol=feco5&orb=homo&plane=three:0,1,3', 'feco5 psi'], ['mol=feco5&orb=homo&plane=along:0,1&pfield=rho', 'feco5 rho'],
   ]) {
     const w = await openApp(q), c = w.chemsim, f = c.sliceField(96);
     if (!f) { out.exact.push(`${name}: float readback unavailable, skipped`); continue; }

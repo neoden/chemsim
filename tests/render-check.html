@@ -26,7 +26,7 @@ const out = { ok: true, grid: [], xtb: [], speed: [] };
 try {
   // ---- C. body density from the 3D grid against the exact evaluation
   if (!only || only === 'grid') {
-  for (const [mol, orb] of [['h2o', 'homo'], ['bh3nh3', 'homo'], ['c2h4', 'lumo'], ['c6h6', 'homo'], ['b2h6', 'lumo']]) {
+  for (const [mol, orb] of [['h2o', 'homo'], ['bh3nh3', 'homo'], ['c2h4', 'lumo'], ['c6h6', 'homo'], ['b2h6', 'lumo'], ['sf6', 'homo'], ['ticl4', 'lumo'], ['feco5', 'homo']]) {
     const shots = [];
     for (const g of [1, 0]) {
       const w = await openApp(`mol=${mol}&orb=${orb}&wobble=0&bodygrid=${g}&canvas=900x700`);
@@ -46,7 +46,7 @@ try {
   }
   // ---- B. xTB pictures for looking at, and frame times
   if (!only || only === 'xtb') {
-  for (const [mol, orb] of [['h2o', 'homo'], ['bh3', 'lumo'], ['c2h4', 'homo'], ['c2h4', 'lumo'], ['bh3nh3', 'homo'], ['c6h6', 'homo'], ['b2h6', 'homo']]) {
+  for (const [mol, orb] of [['h2o', 'homo'], ['bh3', 'lumo'], ['c2h4', 'homo'], ['c2h4', 'lumo'], ['bh3nh3', 'homo'], ['c6h6', 'homo'], ['b2h6', 'homo'], ['h2s', 'lumo'], ['sf6', 'homo'], ['ticl4', 'lumo'], ['nico4', 'homo'], ['feco5', 'homo'], ['crco6', 'homo'], ['ferrocene', 'homo']]) {
     const w = await openApp(`mol=${mol}&orb=${orb}&wobble=0`);
     await report(`xtb-${mol}-${orb}.png`, w.chemsim.snapshot());
     out.xtb.push({ mol, orb, eV: +(w.chemsim.state.result.eps[w.chemsim.state.selected] * 27.211386).toFixed(3) });

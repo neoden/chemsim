@@ -11,7 +11,10 @@ const xtb = await createXtbEngine(readFileSync(new URL('app/engine/xtb_wasm.wasm
 const R = Math.PI / 180, cos = (a) => Math.cos(a * R), sin = (a) => Math.sin(a * R);
 
 // starting geometries in angstrom: [element, x, y, z]
-const fromRef = (name, d) => ref.build(name, d).map((a) => [a.el, ...a.r.map((v) => v / 1.8897259886)]);
+// the geometry this molecule already has in the library (the first few came from the reference
+// demo, which is gone; 'pair' is set by hand and lives only there)
+const current = JSON.parse(readFileSync(new URL('app/src/library.json', root))).molecules;
+const kept = (key) => { const m = current.find((x) => x.key === key); return m.elements.map((el, i) => [el, ...m.xyz.slice(3 * i, 3 * i + 3)]); };
 const ring = (n, r, el, phase = 0) => Array.from({ length: n }, (_, i) => [typeof el === 'function' ? el(i) : el, r * cos(phase + 360 * i / n), r * sin(phase + 360 * i / n), 0]);
 const T = 1.09 / Math.sqrt(3);
 const tetra = (centre, r, h = 'H') => { const t = r / Math.sqrt(3); return [[centre, 0, 0, 0], [h, t, t, t], [h, t, -t, -t], [h, -t, t, -t], [h, -t, -t, t]]; };
@@ -35,12 +38,13 @@ function zmat(rows) {
   });
   return out;
 }
+const octa = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 const methyl = (c, x, ref, first = 180) => [first, first + 120, first - 120].map((d) => ['H', c, 1.09, x, 110, ref, d]);
 
 // group: heading in the list of molecules
 const molecules = [
-  { key: 'h2o', name: 'H₂O, water', group: 'Simple', start: fromRef('h2o') },
-  { key: 'nh3', name: 'NH₃, ammonia', group: 'Simple', start: fromRef('nh3') },
+  { key: 'h2o', name: 'H₂O, water', group: 'Simple', start: kept('h2o') },
+  { key: 'nh3', name: 'NH₃, ammonia', group: 'Simple', start: kept('nh3') },
   { key: 'ch4', name: 'CH₄, methane', group: 'Simple', start: tetra('C', 1.09) },
   { key: 'h2', name: 'H₂, hydrogen', group: 'Simple', start: zmat([['H'], ['H', 1, 0.74]]) },
   { key: 'n2', name: 'N₂, nitrogen', group: 'Simple', start: [['N', 0.55, 0, 0], ['N', -0.55, 0, 0]] },
@@ -54,9 +58,9 @@ const molecules = [
   { key: 'n2h4', name: 'N₂H₄, hydrazine', group: 'Simple', start: zmat([['N'], ['N', 1, 1.45], ['H', 1, 1.02, 2, 108], ['H', 1, 1.02, 2, 108, 3, 115], ['H', 2, 1.02, 1, 108, 3, 90], ['H', 2, 1.02, 1, 108, 5, 115]]) },
   { key: 'hno3', name: 'HNO₃, nitric acid', group: 'Simple', start: zmat([['N'], ['O', 1, 1.21], ['O', 1, 1.21, 2, 130], ['O', 1, 1.41, 2, 115, 3, 180], ['H', 4, 0.97, 1, 102, 2, 0]]) },
 
-  { key: 'bh3', name: 'BH₃, borane', group: 'Boron', start: fromRef('bh3') },
-  { key: 'bh3nh3', name: 'BH₃NH₃, adduct', group: 'Boron', start: fromRef('pair', 1.66) },
-  { key: 'pair', name: 'BH₃ + NH₃ apart, 3 Å', group: 'Boron', start: fromRef('pair', 3.0), fixed: true,
+  { key: 'bh3', name: 'BH₃, borane', group: 'Boron', start: kept('bh3') },
+  { key: 'bh3nh3', name: 'BH₃NH₃, adduct', group: 'Boron', start: kept('bh3nh3') },
+  { key: 'pair', name: 'BH₃ + NH₃ apart, 3 Å', group: 'Boron', start: kept('pair'), fixed: true,
     note: 'The geometry is set by hand: two fragments at a B–N distance of 3 Å, not optimized.' },
   { key: 'b2h6', name: 'B₂H₆, diborane', group: 'Boron', start: [['B', 0.885, 0, 0], ['B', -0.885, 0, 0], ['H', 0, 0, 0.99], ['H', 0, 0, -0.99],
     ...[[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, b]) => ['H', a * (0.885 + 1.19 * cos(60.5)), b * 1.19 * sin(60.5), 0])] },
@@ -66,7 +70,7 @@ const molecules = [
     ['H', 2, 0.96, 1, 113, 3, 180], ['H', 3, 0.96, 1, 113, 4, 180], ['H', 4, 0.96, 1, 113, 2, 180]]) },
   { key: 'b3n3h6', name: 'B₃N₃H₆, borazine', group: 'Boron', start: [...ring(6, 1.43, (i) => 'BN'[i % 2]), ...ring(6, 2.55, 'H')] },
 
-  { key: 'c2h4', name: 'C₂H₄, ethylene', group: 'Organic', start: fromRef('c2h4') },
+  { key: 'c2h4', name: 'C₂H₄, ethylene', group: 'Organic', start: kept('c2h4') },
   { key: 'c2h2', name: 'C₂H₂, acetylene', group: 'Organic', start: [['H', -1.66, 0, 0], ['C', -0.60, 0, 0], ['C', 0.60, 0, 0], ['H', 1.66, 0, 0]] },
   { key: 'c2h6', name: 'C₂H₆, ethane', group: 'Organic', start: zmat([['C'], ['C', 1, 1.53], ['H', 1, 1.09, 2, 110.5], ['H', 1, 1.09, 2, 110.5, 3, 120], ['H', 1, 1.09, 2, 110.5, 3, -120],
     ['H', 2, 1.09, 1, 110.5, 3, 180], ['H', 2, 1.09, 1, 110.5, 3, 60], ['H', 2, 1.09, 1, 110.5, 3, -60]]) },
@@ -112,6 +116,44 @@ const molecules = [
   { key: 'koh', name: 'KOH, caustic potash', group: 'Fluorine and metals', start: zmat([['K'], ['O', 1, 2.20], ['H', 2, 0.96, 1, 150]]) },
   { key: 'he', name: 'He, helium atom', group: 'Fluorine and metals', start: [['He', 0, 0, 0]] },
 
+  // from here on the atoms carry d functions
+  { key: 'h2s', name: 'H₂S, hydrogen sulfide', group: 'Third period', start: zmat([['S'], ['H', 1, 1.34], ['H', 1, 1.34, 2, 92]]) },
+  { key: 'hcl', name: 'HCl, hydrogen chloride', group: 'Third period', start: zmat([['H'], ['Cl', 1, 1.27]]) },
+  { key: 'cl2', name: 'Cl₂, chlorine', group: 'Third period', start: zmat([['Cl'], ['Cl', 1, 1.99]]) },
+  { key: 'ph3', name: 'PH₃, phosphine', group: 'Third period', start: zmat([['P'], ['H', 1, 1.42], ['H', 1, 1.42, 2, 93.5], ['H', 1, 1.42, 2, 93.5, 3, 94]]) },
+  { key: 'sih4', name: 'SiH₄, silane', group: 'Third period', start: tetra('Si', 1.48) },
+  { key: 'ch3cl', name: 'CH₃Cl, chloromethane', group: 'Third period', start: zmat([['C'], ['Cl', 1, 1.78], ['H', 1, 1.09, 2, 108], ['H', 1, 1.09, 2, 108, 3, 120], ['H', 1, 1.09, 2, 108, 3, -120]]) },
+  { key: 'ccl4', name: 'CCl₄, carbon tetrachloride', group: 'Third period', start: tetra('C', 1.77, 'Cl') },
+  { key: 'so2', name: 'SO₂, sulfur dioxide', group: 'Third period', start: zmat([['S'], ['O', 1, 1.43], ['O', 1, 1.43, 2, 119]]) },
+  { key: 'so3', name: 'SO₃, sulfur trioxide', group: 'Third period', start: zmat([['S'], ['O', 1, 1.42], ['O', 1, 1.42, 2, 120], ['O', 1, 1.42, 2, 120, 3, 180]]) },
+  { key: 'h2so4', name: 'H₂SO₄, sulfuric acid', group: 'Third period', start: zmat([['S'], ['O', 1, 1.42], ['O', 1, 1.42, 2, 123], ['O', 1, 1.57, 2, 108, 3, 115], ['O', 1, 1.57, 2, 108, 3, -115],
+    ['H', 4, 0.97, 1, 108, 2, 30], ['H', 5, 0.97, 1, 108, 3, 30]]) },
+  { key: 'h3po4', name: 'H₃PO₄, phosphoric acid', group: 'Third period', start: zmat([['P'], ['O', 1, 1.48], ['O', 1, 1.58, 2, 115], ['O', 1, 1.58, 2, 115, 3, 120], ['O', 1, 1.58, 2, 115, 3, -120],
+    ['H', 3, 0.97, 1, 112, 2, 40], ['H', 4, 0.97, 1, 112, 2, 40], ['H', 5, 0.97, 1, 112, 2, 40]]) },
+  { key: 'pcl5', name: 'PCl₅, phosphorus pentachloride', group: 'Third period', start: [['P', 0, 0, 0], ['Cl', 0, 0, 2.12], ['Cl', 0, 0, -2.12], ...[0, 120, 240].map((a) => ['Cl', 2.02 * cos(a), 2.02 * sin(a), 0])] },
+  { key: 'sf6', name: 'SF₆, sulfur hexafluoride', group: 'Third period', start: [['S', 0, 0, 0], ...octa.map((v) => ['F', ...v.map((x) => 1.56 * x)])] },
+  { key: 'nacl', name: 'NaCl, sodium chloride', group: 'Third period', start: zmat([['Na'], ['Cl', 1, 2.36]]) },
+  { key: 'mgcl2', name: 'MgCl₂, magnesium chloride', group: 'Third period', start: [['Cl', -2.18, 0, 0], ['Mg', 0, 0, 0], ['Cl', 2.18, 0, 0]] },
+  { key: 'alcl3', name: 'AlCl₃, aluminium chloride', group: 'Third period', start: [['Al', 0, 0, 0], ...[90, 210, 330].map((a) => ['Cl', 0, 2.06 * cos(a), 2.06 * sin(a)])] },
+  { key: 'ne', name: 'Ne, neon atom', group: 'Third period', start: [['Ne', 0, 0, 0]] },
+  { key: 'ar', name: 'Ar, argon atom', group: 'Third period', start: [['Ar', 0, 0, 0]] },
+
+  // d metals: here the d functions are the valence orbitals themselves
+  { key: 'ticl4', name: 'TiCl₄, titanium tetrachloride', group: 'd metals', start: tetra('Ti', 2.17, 'Cl'),
+    note: 'The five lowest empty orbitals are the d orbitals of titanium: the tetrahedron of chlorines splits them into a pair below and a triple above.' },
+  { key: 'nico4', name: 'Ni(CO)₄, nickel carbonyl', group: 'd metals', start: [['Ni', 0, 0, 0], ...tetra('C', 1.84, 'C').slice(1), ...tetra('O', 2.98, 'O').slice(1)],
+    note: 'Nickel has all five d orbitals filled: they are the highest occupied orbitals of the molecule.' },
+  { key: 'feco5', name: 'Fe(CO)₅, iron pentacarbonyl', group: 'd metals', start: [['Fe', 0, 0, 0],
+    ...[1.81, 2.96].flatMap((r, i) => [[i ? 'O' : 'C', 0, 0, r], [i ? 'O' : 'C', 0, 0, -r], ...[0, 120, 240].map((a) => [i ? 'O' : 'C', r * cos(a), r * sin(a), 0])])] },
+  { key: 'crco6', name: 'Cr(CO)₆, chromium hexacarbonyl', group: 'd metals', start: [['Cr', 0, 0, 0], ...octa.map((v) => ['C', ...v.map((x) => 1.91 * x)]), ...octa.map((v) => ['O', ...v.map((x) => 3.05 * x)])],
+    note: 'The three highest occupied orbitals are the chromium d orbitals that point between the CO groups (dxy, dyz, dxz); the two that point at them (dz², dx²−y²) are empty.' },
+  { key: 'ferrocene', name: 'Fe(C₅H₅)₂, ferrocene', group: 'd metals', start: [['Fe', 0, 0, 0],
+    ...[1.66, -1.66].flatMap((z) => [...ring(5, 1.21, 'C'), ...ring(5, 2.29, 'H')].map(([el, x, y]) => [el, x, y, z]))],
+    note: 'The frontier orbitals are the five d orbitals of iron: three filled (dz², dxy, dx²−y²) and, above them, two empty (dxz, dyz).' },
+  { key: 'mno4-', name: 'MnO₄⁻, permanganate', group: 'd metals', charge: -1, start: tetra('Mn', 1.63, 'O') },
+
+  { key: 'cl-', name: 'Cl⁻, chloride', group: 'Ions', charge: -1, start: [['Cl', 0, 0, 0]] },
+  { key: 'cl', name: 'Cl·, chlorine atom', group: 'Radicals', start: [['Cl', 0, 0, 0]] },
   { key: 'f-', name: 'F⁻, fluoride', group: 'Ions', charge: -1, start: [['F', 0, 0, 0]] },
   { key: 'bf4-', name: 'BF₄⁻, tetrafluoroborate', group: 'Ions', charge: -1, start: tetra('B', 1.40, 'F') },
   { key: 'h', name: 'H·, hydrogen atom', group: 'Radicals', start: [['H', 0, 0, 0]] },

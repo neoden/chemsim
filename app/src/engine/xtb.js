@@ -39,12 +39,14 @@ export async function createXtbEngine(wasmBytes) {
       const u = unpack(r.raw);
       if (req.orbitals === false)
         return { ok: true, converged: true, engine: 'xtb', energy: u.energy, forces: u.hasGrad ? Float64Array.from(u.gradient, (g) => -g) : null, iterations: u.iterations };
-      // axtb orders p functions y, z, x; the interface uses x, y, z
+      // axtb orders p functions y, z, x; the interface uses x, y, z. The d functions keep
+      // axtb's order (m = -2..2: xy, yz, z2, xz, x2-y2; see orbitals.js). GFN2-xTB has no f.
       const perm = [];
       for (const sh of u.shells) {
         const b = perm.length;
         if (sh.l === 0) perm.push(b);
         else if (sh.l === 1) perm.push(b + 2, b, b + 1);
+        else if (sh.l === 2) perm.push(b, b + 1, b + 2, b + 3, b + 4);
         else return { ok: false, converged: true, error: `shell with l = ${sh.l} is not supported` };
       }
       const coeff = new Float64Array(u.nmo * u.nao);
