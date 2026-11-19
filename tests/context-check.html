@@ -1,0 +1,31 @@
+<!doctype html><meta charset="utf-8"><title>context check</title>
+<style>body{margin:0}iframe{border:0;display:block}</style>
+<iframe id="app" width="2030" height="1320"></iframe>
+<script type="module">
+// Opens the app at a large size and reports whether the WebGL context survives a few seconds.
+const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
+const frame = document.getElementById('app');
+const out = { ok: true, dpr: devicePixelRatio };
+try {
+  const done = new Promise((r) => frame.addEventListener('load', r, { once: true }));
+  frame.src = '/app/index.html?' + (new URLSearchParams(location.search).get('q') || '');
+  await done;
+  const w = frame.contentWindow;
+  while (!w.chemsim) await new Promise((r) => setTimeout(r, 20));
+  const errors = [];
+  w.addEventListener('error', (e) => errors.push(e.message));
+  const cv = w.document.getElementById('view');
+  cv.addEventListener('webglcontextlost', () => errors.push('webglcontextlost at ' + Math.round(performance.now())));
+  await w.chemsim.ready;
+  const gl = w.chemsim.renderer.gl;
+  out.gpu = w.chemsim.renderer.rendererName();
+  await new Promise((r) => setTimeout(r, 4000));
+  out.canvas = `${cv.width}x${cv.height}`;
+  out.lost = gl.isContextLost();
+  out.glError = gl.getError();
+  out.errors = errors;
+  out.status = w.document.getElementById('status').textContent;
+  out.ok = !out.lost;
+} catch (e) { out.ok = false; out.error = String(e.stack || e); }
+await report('done.json', JSON.stringify(out, null, 1));
+</script>

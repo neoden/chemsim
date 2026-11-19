@@ -1,0 +1,124 @@
+<!doctype html><meta charset="utf-8"><title>plane check</title>
+<style>body{margin:0;background:#222}iframe{border:0;display:block}</style>
+<iframe id="app" width="1400" height="900"></iframe>
+<script type="module">
+// Stage 2 checks: the field drawn on the cut is the exact field (compared with a CPU
+// evaluation in double precision), the snaps put the plane where they should, and
+// pictures of both modes for looking at.
+const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
+const frame = document.getElementById('app');
+const out = { ok: true, exact: [], snaps: [], mouse: [] };
+async function openApp(query) {
+  const done = new Promise((r) => frame.addEventListener('load', r, { once: true }));
+  frame.src = '/app/index.html?wobble=0&' + query;
+  await done;
+  const w = frame.contentWindow;
+  while (!w.chemsim) await new Promise((r) => setTimeout(r, 20));
+  await w.chemsim.ready;
+  return w;
+}
+// psi of orbital m, or sqrt(rho), at point p from an engine result
+function cpuField(res, pos, m, field, p) {
+  const ao = [];
+  for (const sh of res.shells) {
+    const d = [0, 1, 2].map((k) => p[k] - pos[3 * sh.atom + k]), r2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    let R = 0;
+    for (let k = 0; k < sh.alpha.length; k++) R += sh.coeff[k] * Math.exp(-sh.alpha[k] * r2);
+    if (sh.l) ao.push(R * d[0], R * d[1], R * d[2]); else ao.push(R);
+  }
+  const mo = (k) => ao.reduce((s, v, i) => s + res.coeff[k * res.nao + i] * v, 0);
+  if (field === 'psi') return mo(m);
+  let rho = 0;
+  for (let k = 0; k < res.nmo; k++) if (res.occ[k] > 1e-6) rho += res.occ[k] * mo(k) ** 2;
+  return Math.sqrt(rho);
+}
+try {
+  for (const [q, name] of [
+    ['mol=h2o&orb=2&plane=three:0,1,2', 'h2o psi'], ['mol=c2h4&orb=homo&plane=across:0,1&poffset=0.3', 'c2h4 psi'],
+    ['mol=c6h6&orb=homo&plane=along:0,3&pfield=rho', 'c6h6 rho'], ['mol=bh3nh3&orb=homo&plane=along:0,4&engine=eht', 'bh3nh3 psi (eht)'],
+  ]) {
+    const w = await openApp(q), c = w.chemsim, f = c.sliceField(96);
+    if (!f) { out.exact.push(`${name}: float readback unavailable, skipped`); continue; }
+    let maxErr = 0, maxVal = 0;
+    for (let y = 0; y < f.size; y++) for (let x = 0; x < f.size; x++) {
+      const u = ((x + 0.5) / f.size * 2 - 1) * f.half, v = ((y + 0.5) / f.size * 2 - 1) * f.half;
+      const p = [0, 1, 2].map((k) => f.centre[k] + u * f.e1[k] + v * f.e2[k]);
+      const want = cpuField(c.state.result, c.state.molecule.positions, c.state.selected, f.field, p);
+      maxErr = Math.max(maxErr, Math.abs(want - f.values[y * f.size + x]));
+      maxVal = Math.max(maxVal, Math.abs(want));
+    }
+    out.exact.push(`${name}: max |GPU - CPU| = ${maxErr.toExponential(1)} (field up to ${maxVal.toFixed(3)})`);
+    // 1e-3 is the atom cutoff of the shader (3e-4 per function) plus float32 rounding
+    if (maxErr > 1.5e-3) out.ok = false;
+  }
+  // snaps: distances of the picked atoms from the plane, and the bond angle to it
+  {
+    const P = await import('/app/src/plane.js');
+    const check = async (q, atoms, kind) => {
+      const w = await openApp(q), pl = w.chemsim.state.plane, pos = w.chemsim.state.molecule.positions;
+      const at = (k) => [pos[3 * k], pos[3 * k + 1], pos[3 * k + 2]];
+      const dist = atoms.map((k) => Math.abs(P.dot(P.sub(at(k), pl.origin), pl.normal)));
+      const bond = P.unit(P.sub(at(atoms[1]), at(atoms[0])));
+      const good = kind === 'across' ? Math.abs(dist[0] - dist[1]) < 1e-9 && Math.abs(Math.abs(P.dot(bond, pl.normal)) - 1) < 1e-9 : Math.max(...dist) < 1e-9;
+      out.snaps.push(`${kind}: atom distances from the plane ${dist.map((d) => d.toExponential(1)).join(', ')} bohr; |cos(bond, normal)| = ${Math.abs(P.dot(bond, pl.normal)).toFixed(6)}; ${good ? 'ok' : 'WRONG'}`);
+      if (!good) out.ok = false;
+    };
+    await check('mol=bh3nh3&plane=three:0,4,5', [0, 4, 5], 'three');
+    await check('mol=bh3nh3&plane=along:0,4', [0, 4], 'along');
+    await check('mol=bh3nh3&plane=across:0,4', [0, 4], 'across');
+  }
+  // the same through the real controls, with synthetic mouse events
+  {
+    const P = await import('/app/src/plane.js');
+    const { project } = await import('/app/src/render/fog.js');
+    const w = await openApp('mol=bh3nh3'), c = w.chemsim, d = w.document, cv = d.getElementById('view');
+    const pos = c.state.molecule.positions, at = (k) => [pos[3 * k], pos[3 * k + 1], pos[3 * k + 2]];
+    const fire = (type, x, y, extra = {}) => {
+      const r = cv.getBoundingClientRect();
+      cv.dispatchEvent(new w.PointerEvent(type, { clientX: r.left + x, clientY: r.top + y, pointerId: 1, bubbles: true, ...extra }));
+    };
+    const drag = (x0, y0, x1, y1, extra) => { fire('pointerdown', x0, y0, extra); for (let i = 1; i <= 10; i++) fire('pointermove', x0 + (x1 - x0) * i / 10, y0 + (y1 - y0) * i / 10, extra); fire('pointerup', x1, y1, extra); };
+    const note = (text, good) => { out.mouse.push(`${text}: ${good ? 'ok' : 'WRONG'}`); if (!good) out.ok = false; };
+    d.getElementById('plane-on').click();
+    note('checkbox turns the plane on, facing the camera', !!c.state.plane && !d.getElementById('slice-box').hidden);
+    d.querySelector('#plane-snap [data-v="three"]').click();
+    for (const k of [0, 4, 5]) { const [x, y] = project(at(k), c.state.camera, cv.clientWidth, cv.clientHeight); fire('pointerdown', x, y); fire('pointerup', x, y); }
+    let pl = c.state.plane;
+    const dist = [0, 4, 5].map((k) => Math.abs(P.dot(P.sub(at(k), pl.origin), pl.normal)));
+    note(`clicking three nuclei puts the plane through them (max distance ${Math.max(...dist).toExponential(1)} bohr)`, Math.max(...dist) < 1e-9 && !c.state.picking);
+    const off0 = P.planeOffset(pl), n0 = pl.normal;
+    d.querySelector('#plane-mouse [data-v="shift"]').click();
+    const cam = (await import('/app/src/render/fog.js')).cameraBasis(c.state.camera);
+    const nx = P.dot(pl.normal, cam.rt), ny = P.dot(pl.normal, cam.up), len = Math.hypot(nx, ny);
+    const dir = len > 0.35 ? [nx / len, -ny / len] : [0, -1];
+    drag(400, 400, 400 + 60 * dir[0], 400 + 60 * dir[1]);
+    const moved = P.planeOffset(c.state.plane) - off0, want = 60 * c.state.camera.distance / (2.3 * cv.clientHeight / 2);
+    note(`dragging 60 px along the normal shifts the plane by ${moved.toFixed(3)} bohr (expected ${want.toFixed(3)})`, Math.abs(moved - want) < 1e-6 && P.dot(c.state.plane.normal, n0) > 1 - 1e-12);
+    d.querySelector('#plane-mouse [data-v="tilt"]').click();
+    const before = c.state.plane, pivot = before.origin;
+    drag(400, 400, 460, 400);
+    pl = c.state.plane;
+    const angle = Math.acos(Math.min(1, P.dot(pl.normal, before.normal)));
+    note(`dragging 60 px tilts the plane by ${(angle * 180 / Math.PI).toFixed(1)} degrees about its anchor point`, angle > 0.2 && Math.abs(P.dot(P.sub(pivot, pl.origin), pl.normal)) < 1e-9 && Math.abs(P.dot(pl.e1, pl.normal)) < 1e-12);
+    d.getElementById('plane-flip').click();
+    note('"flip" reverses the normal', P.dot(c.state.plane.normal, pl.normal) < -1 + 1e-12);
+    d.querySelector('#plane-mouse [data-v="camera"]').click();
+    const yaw0 = c.state.camera.yaw, keep = c.state.plane;
+    drag(400, 400, 460, 400);
+    note('in "view" mode dragging rotates the camera and leaves the plane alone', c.state.camera.yaw !== yaw0 && c.state.plane === keep);
+    drag(400, 400, 400, 340, { shiftKey: true });
+    note('Shift-drag shifts the plane in any mouse mode', c.state.plane !== keep);
+    d.getElementById('plane-on').click();
+    note('checkbox turns the plane off', !c.state.plane && d.getElementById('slice-box').hidden);
+  }
+  for (const [q, name] of [
+    ['mol=c2h4&orb=homo&plane=across:0,1', 'c2h4-across-knife'], ['mol=h2o&orb=2&plane=three:0,1,2&pmode=sheet', 'h2o-sheet'],
+    ['mol=bh3nh3&orb=6&plane=along:0,4', 'bh3nh3-along-knife'], ['mol=c6h6&orb=10&plane=view&pfield=rho&pmode=sheet', 'c6h6-rho-sheet'],
+  ]) {
+    const w = await openApp(q);
+    await report(`plane-${name}.png`, w.chemsim.snapshot());
+    await report(`plane-${name}-2d.png`, w.chemsim.sliceSnapshot());
+  }
+} catch (e) { out.ok = false; out.error = String(e.stack || e); }
+await report('done.json', JSON.stringify(out, null, 1));
+</script>

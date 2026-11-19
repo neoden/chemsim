@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chemsim: licenses</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;max-width:820px;margin:32px auto;padding:0 16px;background:#0d0f15;color:#e7e9ee}a{color:#6aa9ff}td,th{padding:3px 14px 3px 0;text-align:left;vertical-align:top}th{color:#9299a8;font-weight:500}code{background:#1b1f2b;padding:1px 5px;border-radius:4px}h1{font-size:22px}h2{font-size:17px;margin-top:28px}</style>
+</head><body>
+<h1>Licenses</h1>
+<p><a href="../index.html">← back to the app</a></p>
+<h2>The calculation module</h2>
+<p>The file <code>engine/xtb_wasm.wasm</code> contains the <a href="https://github.com/atomsforhumanity/axtb">axtb</a> library, version 0.1.2 (the GFN2-xTB method), which is distributed under the
+<a href="LGPL-3.0.txt">GNU Lesser General Public License, version 3</a> or later; it supplements the <a href="GPL-3.0.txt">GNU General Public License, version 3</a>.
+Where the parameters and algorithms of axtb come from is stated in its <a href="axtb-NOTICE.txt">NOTICE</a>; how the licenses apply to the parts of axtb is in its <a href="axtb-LICENSE.txt">LICENSE</a>.</p>
+<p>The library is used unmodified. Its source code: <a href="https://github.com/atomsforhumanity/axtb/tree/675f523e4eb3baf49ad0d90d5ccddf4de6b8677f">github.com/atomsforhumanity/axtb</a>, commit <code>675f523e4eb3</code> (tag v0.1.2).
+The source code of the wrapper it is built into the module with, and instructions for rebuilding with a modified version of the library, are <a href="../source/index.html">next to the site</a>.</p>
+<h2>What the module contains</h2>
+<table><tr><th>Package</th><th>Version</th><th>License</th><th>Texts</th></tr>
+<tr><td>autocfg</td><td>1.5.1</td><td>Apache-2.0 OR MIT</td><td><a href="third-party/autocfg-1.5.1-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/autocfg-1.5.1-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>axtb</td><td>0.1.2</td><td>LGPL-3.0-or-later</td><td><a href="LGPL-3.0.txt">LGPL</a>, <a href="GPL-3.0.txt">GPL</a>, <a href="axtb-NOTICE.txt">NOTICE</a></td></tr>
+<tr><td>axtb-d4</td><td>0.1.2</td><td>LGPL-3.0-or-later</td><td><a href="LGPL-3.0.txt">LGPL</a>, <a href="GPL-3.0.txt">GPL</a>, <a href="axtb-NOTICE.txt">NOTICE</a></td></tr>
+<tr><td>axtb-solvation</td><td>0.1.2</td><td>LGPL-3.0-or-later</td><td><a href="LGPL-3.0.txt">LGPL</a>, <a href="GPL-3.0.txt">GPL</a>, <a href="axtb-NOTICE.txt">NOTICE</a></td></tr>
+<tr><td>bitflags</td><td>2.13.2</td><td>MIT OR Apache-2.0</td><td><a href="third-party/bitflags-2.13.2-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/bitflags-2.13.2-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>bytemuck</td><td>1.25.2</td><td>Zlib OR Apache-2.0 OR MIT</td><td><a href="third-party/bytemuck-1.25.2-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/bytemuck-1.25.2-LICENSE-MIT.txt">LICENSE-MIT</a>, <a href="third-party/bytemuck-1.25.2-LICENSE-ZLIB.txt">LICENSE-ZLIB</a></td></tr>
+<tr><td>bytemuck_derive</td><td>1.12.1</td><td>Zlib OR Apache-2.0 OR MIT</td><td><a href="third-party/bytemuck_derive-1.12.1-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/bytemuck_derive-1.12.1-LICENSE-MIT.txt">LICENSE-MIT</a>, <a href="third-party/bytemuck_derive-1.12.1-LICENSE-ZLIB.txt">LICENSE-ZLIB</a></td></tr>
+<tr><td>cfg-if</td><td>1.0.5</td><td>MIT OR Apache-2.0</td><td><a href="third-party/cfg-if-1.0.5-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/cfg-if-1.0.5-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>crossbeam-deque</td><td>0.8.8</td><td>MIT OR Apache-2.0</td><td><a href="third-party/crossbeam-deque-0.8.8-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/crossbeam-deque-0.8.8-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>crossbeam-epoch</td><td>0.9.21</td><td>MIT OR Apache-2.0</td><td><a href="third-party/crossbeam-epoch-0.9.21-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/crossbeam-epoch-0.9.21-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>crossbeam-utils</td><td>0.8.23</td><td>MIT OR Apache-2.0</td><td><a href="third-party/crossbeam-utils-0.8.23-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/crossbeam-utils-0.8.23-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>dyn-stack</td><td>0.13.2</td><td>MIT</td><td><a href="third-party/dyn-stack-0.13.2-LICENSE.txt">LICENSE</a></td></tr>
+<tr><td>dyn-stack-macros</td><td>0.1.3</td><td>MIT</td><td><a href="third-party/dyn-stack-macros-0.1.3-LICENSE.txt">LICENSE</a></td></tr>
+<tr><td>either</td><td>1.19.0</td><td>MIT OR Apache-2.0</td><td><a href="third-party/either-1.19.0-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/either-1.19.0-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>equator</td><td>0.2.2</td><td>MIT</td><td><a href="third-party/equator-0.2.2-MIT.txt">MIT</a> (no file in the package; authors from the manifest)</td></tr>
+<tr><td>equator</td><td>0.4.2</td><td>MIT</td><td><a href="third-party/equator-0.4.2-LICENSE.txt">LICENSE</a></td></tr>
+<tr><td>equator-macro</td><td>0.2.1</td><td>MIT</td><td><a href="third-party/equator-macro-0.2.1-MIT.txt">MIT</a> (no file in the package; authors from the manifest)</td></tr>
+<tr><td>equator-macro</td><td>0.4.2</td><td>MIT</td><td><a href="third-party/equator-macro-0.4.2-LICENSE.txt">LICENSE</a></td></tr>
+<tr><td>faer</td><td>0.22.6</td><td>MIT</td><td><a href="third-party/faer-0.22.6-MIT.txt">MIT</a> (no file in the package; authors from the manifest)</td></tr>
+<tr><td>faer-macros</td><td>0.21.0</td><td>MIT</td><td><a href="third-party/faer-macros-0.21.0-MIT.txt">MIT</a> (no file in the package; authors from the manifest)</td></tr>
+<tr><td>faer-traits</td><td>0.22.1</td><td>MIT</td><td><a href="third-party/faer-traits-0.22.1-MIT.txt">MIT</a> (no file in the package; authors from the manifest)</td></tr>
+<tr><td>gemm</td><td>0.18.2</td><td>MIT</td><td><a href="third-party/gemm-0.18.2-LICENSE.txt">LICENSE</a></td></tr>
+<tr><td>gemm-c32</td><td>0.18.2</td><td>MIT</td><td><a href="third-party/gemm-c32-0.18.2-LICENSE.txt">LICENSE</a></td></tr>
+<tr><td>gemm-c64</td><td>0.18.2</td><td>MIT</td><td><a href="third-party/gemm-c64-0.18.2-LICENSE.txt">LICENSE</a></td></tr>
+<tr><td>gemm-common</td><td>0.18.2</td><td>MIT</td><td><a href="third-party/gemm-common-0.18.2-LICENSE.txt">LICENSE</a></td></tr>
+<tr><td>gemm-f16</td><td>0.18.2</td><td>MIT</td><td><a href="third-party/gemm-f16-0.18.2-LICENSE.txt">LICENSE</a></td></tr>
+<tr><td>gemm-f32</td><td>0.18.2</td><td>MIT</td><td><a href="third-party/gemm-f32-0.18.2-LICENSE.txt">LICENSE</a></td></tr>
+<tr><td>gemm-f64</td><td>0.18.2</td><td>MIT</td><td><a href="third-party/gemm-f64-0.18.2-LICENSE.txt">LICENSE</a></td></tr>
+<tr><td>generativity</td><td>1.2.1</td><td>MIT OR Apache-2.0</td><td><a href="third-party/generativity-1.2.1-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/generativity-1.2.1-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>half</td><td>2.7.1</td><td>MIT OR Apache-2.0</td><td><a href="third-party/half-2.7.1-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/half-2.7.1-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>libm</td><td>0.2.16</td><td>MIT</td><td><a href="third-party/libm-0.2.16-LICENSE.txt">LICENSE.txt</a></td></tr>
+<tr><td>nano-gemm</td><td>0.1.3</td><td>MIT</td><td><a href="third-party/nano-gemm-0.1.3-MIT.txt">MIT</a> (no file in the package; authors from the manifest)</td></tr>
+<tr><td>nano-gemm-c32</td><td>0.1.0</td><td>MIT</td><td><a href="third-party/nano-gemm-c32-0.1.0-MIT.txt">MIT</a> (no file in the package; authors from the manifest)</td></tr>
+<tr><td>nano-gemm-c64</td><td>0.1.0</td><td>MIT</td><td><a href="third-party/nano-gemm-c64-0.1.0-MIT.txt">MIT</a> (no file in the package; authors from the manifest)</td></tr>
+<tr><td>nano-gemm-codegen</td><td>0.1.0</td><td>MIT</td><td><a href="third-party/nano-gemm-codegen-0.1.0-MIT.txt">MIT</a> (no file in the package; authors from the manifest)</td></tr>
+<tr><td>nano-gemm-core</td><td>0.1.0</td><td>MIT</td><td><a href="third-party/nano-gemm-core-0.1.0-MIT.txt">MIT</a> (no file in the package; authors from the manifest)</td></tr>
+<tr><td>nano-gemm-f32</td><td>0.1.0</td><td>MIT</td><td><a href="third-party/nano-gemm-f32-0.1.0-MIT.txt">MIT</a> (no file in the package; authors from the manifest)</td></tr>
+<tr><td>nano-gemm-f64</td><td>0.1.0</td><td>MIT</td><td><a href="third-party/nano-gemm-f64-0.1.0-MIT.txt">MIT</a> (no file in the package; authors from the manifest)</td></tr>
+<tr><td>num-complex</td><td>0.4.6</td><td>MIT OR Apache-2.0</td><td><a href="third-party/num-complex-0.4.6-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/num-complex-0.4.6-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>num-traits</td><td>0.2.19</td><td>MIT OR Apache-2.0</td><td><a href="third-party/num-traits-0.2.19-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/num-traits-0.2.19-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>once_cell</td><td>1.21.4</td><td>MIT OR Apache-2.0</td><td><a href="third-party/once_cell-1.21.4-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/once_cell-1.21.4-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>paste</td><td>1.0.15</td><td>MIT OR Apache-2.0</td><td><a href="third-party/paste-1.0.15-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/paste-1.0.15-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>proc-macro2</td><td>1.0.107</td><td>MIT OR Apache-2.0</td><td><a href="third-party/proc-macro2-1.0.107-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/proc-macro2-1.0.107-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>pulp</td><td>0.21.5</td><td>MIT</td><td><a href="third-party/pulp-0.21.5-LICENSE.txt">LICENSE</a></td></tr>
+<tr><td>qd</td><td>0.7.7</td><td>MIT</td><td><a href="third-party/qd-0.7.7-LICENSE.txt">LICENSE</a></td></tr>
+<tr><td>quote</td><td>1.0.47</td><td>MIT OR Apache-2.0</td><td><a href="third-party/quote-1.0.47-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/quote-1.0.47-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>raw-cpuid</td><td>11.6.0</td><td>MIT</td><td><a href="third-party/raw-cpuid-11.6.0-LICENSE.txt">LICENSE.md</a></td></tr>
+<tr><td>rayon</td><td>1.12.0</td><td>MIT OR Apache-2.0</td><td><a href="third-party/rayon-1.12.0-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/rayon-1.12.0-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>rayon-core</td><td>1.13.0</td><td>MIT OR Apache-2.0</td><td><a href="third-party/rayon-core-1.13.0-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/rayon-core-1.13.0-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>reborrow</td><td>0.5.5</td><td>MIT</td><td><a href="third-party/reborrow-0.5.5-LICENSE.txt">LICENSE</a></td></tr>
+<tr><td>seq-macro</td><td>0.3.6</td><td>MIT OR Apache-2.0</td><td><a href="third-party/seq-macro-0.3.6-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/seq-macro-0.3.6-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>syn</td><td>2.0.119</td><td>MIT OR Apache-2.0</td><td><a href="third-party/syn-2.0.119-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/syn-2.0.119-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>syn</td><td>3.0.10</td><td>MIT OR Apache-2.0</td><td><a href="third-party/syn-3.0.10-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/syn-3.0.10-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>unicode-ident</td><td>1.0.27</td><td>(MIT OR Apache-2.0) AND Unicode-3.0</td><td><a href="third-party/unicode-ident-1.0.27-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/unicode-ident-1.0.27-LICENSE-MIT.txt">LICENSE-MIT</a>, <a href="third-party/unicode-ident-1.0.27-LICENSE-UNICODE.txt">LICENSE-UNICODE</a></td></tr>
+<tr><td>version_check</td><td>0.9.5</td><td>MIT/Apache-2.0</td><td><a href="third-party/version_check-0.9.5-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/version_check-0.9.5-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>zerocopy</td><td>0.8.63</td><td>BSD-2-Clause OR Apache-2.0 OR MIT</td><td><a href="third-party/zerocopy-0.8.63-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/zerocopy-0.8.63-LICENSE-BSD.txt">LICENSE-BSD</a>, <a href="third-party/zerocopy-0.8.63-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+<tr><td>zerocopy-derive</td><td>0.8.63</td><td>BSD-2-Clause OR Apache-2.0 OR MIT</td><td><a href="third-party/zerocopy-derive-0.8.63-LICENSE-APACHE.txt">LICENSE-APACHE</a>, <a href="third-party/zerocopy-derive-0.8.63-LICENSE-BSD.txt">LICENSE-BSD</a>, <a href="third-party/zerocopy-derive-0.8.63-LICENSE-MIT.txt">LICENSE-MIT</a></td></tr>
+</table>
+</body></html>

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chemsim: source code of the calculation module</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;max-width:820px;margin:32px auto;padding:0 16px;background:#0d0f15;color:#e7e9ee}a{color:#6aa9ff}td,th{padding:3px 14px 3px 0;text-align:left;vertical-align:top}th{color:#9299a8;font-weight:500}code{background:#1b1f2b;padding:1px 5px;border-radius:4px}h1{font-size:22px}h2{font-size:17px;margin-top:28px}</style>
+</head><body>
+<h1>Source code of the calculation module</h1>
+<p><a href="../index.html">← back to the app</a> · <a href="../licenses/index.html">licenses</a></p>
+<p>The module <code>engine/xtb_wasm.wasm</code> is the axtb library, version 0.1.2, and a small wrapper with a flat C interface. Everything needed to build it again is here, including with a modified version of axtb.</p>
+<h2>Files</h2>
+<ul><li><a href="xtb-binding.js">xtb-binding.js</a></li><li><a href="xtb-wasm/Cargo.lock">xtb-wasm/Cargo.lock</a></li><li><a href="xtb-wasm/Cargo.toml">xtb-wasm/Cargo.toml</a></li><li><a href="xtb-wasm/src/bin/native.rs">xtb-wasm/src/bin/native.rs</a></li><li><a href="xtb-wasm/src/lib.rs">xtb-wasm/src/lib.rs</a></li></ul>
+<h2>Building</h2>
+<ol>
+<li>Install Rust 1.89 or later and the <code>wasm32-wasip1</code> target: <code>rustup target add wasm32-wasip1</code>.</li>
+<li>Get axtb: <code>git clone https://github.com/atomsforhumanity/axtb</code>, commit <code>675f523e4eb3baf49ad0d90d5ccddf4de6b8677f</code> (or your own modified version).</li>
+<li>In <code>xtb-wasm/Cargo.toml</code>, set the path to the <code>crates/axtb</code> directory of that clone in the line <code>axtb = { path = "…" }</code>.</li>
+<li>In the <code>xtb-wasm</code> directory, run <code>cargo build --release --lib --target wasm32-wasip1</code>.</li>
+<li>Replace <code>engine/xtb_wasm.wasm</code> on the site with the file <code>target/wasm32-wasip1/release/xtb_wasm.wasm</code>.</li>
+</ol>
+<p>The module calls six WASI functions; their implementation and a description of its interface are in <a href="xtb-binding.js">xtb-binding.js</a>.</p>
+</body></html>

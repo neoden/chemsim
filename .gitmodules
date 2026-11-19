@@ -1,0 +1,3 @@
+[submodule "third_party/axtb"]
+	path = third_party/axtb
+	url = https://github.com/atomsforhumanity/axtb

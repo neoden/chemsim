@@ -1,0 +1,24 @@
+<!doctype html><meta charset="utf-8"><title>speed check</title>
+<style>body{margin:0;background:#222}iframe{border:0;display:block}</style>
+<iframe id="app" width="1400" height="900"></iframe>
+<script type="module">
+// Frame time of the renderer on this machine's GPU: ?q=<extra app query>
+const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
+const extra = new URLSearchParams(location.search).get('q') || '';
+const frame = document.getElementById('app');
+const out = { ok: true, rows: [] };
+try {
+  for (const mol of ['h2o', 'bh3nh3', 'c6h6', 'b3n3h6']) for (const body of [1, 0]) {
+    const done = new Promise((r) => frame.addEventListener('load', r, { once: true }));
+    frame.src = `/app/index.html?engine=xtb&mol=${mol}&wobble=0&body=${body}&${extra}`;
+    await done;
+    const w = frame.contentWindow;
+    while (!w.chemsim) await new Promise((r) => setTimeout(r, 20));
+    await w.chemsim.ready;
+    const b = w.chemsim.benchmark(12);
+    out.gpu = b.gpu;
+    out.rows.push(`${mol.padEnd(7)} atoms ${String(w.chemsim.state.molecule.elements.length).padStart(2)}  body ${body}  ${b.width}x${b.height}  ${b.ms.toFixed(1)} ms`);
+  }
+} catch (e) { out.ok = false; out.error = String(e.stack || e); }
+await report('done.json', JSON.stringify(out, null, 1));
+</script>

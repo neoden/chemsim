@@ -1,0 +1,11 @@
+<!doctype html><meta charset="utf-8"><title>xtb wasm probe</title><pre id="log">running…</pre>
+<script type="module">
+const worker = new Worker('./bench-worker.mjs', { type: 'module' });
+worker.onmessage = async ({ data }) => {
+  data.crossOriginIsolated = self.crossOriginIsolated;
+  data.userAgent = navigator.userAgent;
+  document.getElementById('log').textContent = JSON.stringify(data, null, 1);
+  await fetch('/result', { method: 'POST', body: JSON.stringify(data) });
+};
+worker.onerror = (e) => fetch('/result', { method: 'POST', body: JSON.stringify({ error: e.message }) });
+</script>

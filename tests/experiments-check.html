@@ -1,0 +1,71 @@
+<!doctype html><meta charset="utf-8"><title>experiments check</title>
+<style>body{margin:0;background:#222}iframe{border:0;display:block}</style>
+<iframe id="app" width="1400" height="900"></iframe>
+<script type="module">
+// The list of experiments: each one loads with its settings and its instructions; those
+// that need no hand are run to the end and must give the products they promise.
+import { EXPERIMENTS } from '/app/src/experiments.js';
+const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
+const frame = document.getElementById('app');
+const out = { ok: true, rows: [], problems: [] };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (cond, ms) => { const t = performance.now(); while (!cond()) { if (performance.now() - t > ms) return false; await sleep(20); } return true; };
+const same = (a, b) => a.split(' + ').sort().join('+') === b.split(' + ').sort().join('+');
+try {
+  const done = new Promise((r) => frame.addEventListener('load', r, { once: true }));
+  frame.src = '/app/index.html?wobble=0&seed=4';
+  await done;
+  const w = frame.contentWindow;
+  while (!w.chemsim) await sleep(20);
+  await w.chemsim.ready;
+  const c = w.chemsim, s = c.state, d = w.document, list = d.getElementById('experiment'), status = d.getElementById('status');
+  out.listed = list.querySelectorAll('option').length - 1;
+  for (const e of EXPERIMENTS) {
+    list.value = e.key; list.dispatchEvent(new w.Event('change'));
+    const loaded = await until(() => s.experiment?.key === e.key && s.molecule?.key === (e.second ? `${e.first}+${e.second}` : e.first) && s.result && status.textContent.includes(e.expect) && s.unpaired === (e.unpaired ?? s.molecule.unpaired), 8000);
+    const text = status.textContent;
+    if (!loaded || !text.includes(e.expect) || s.settings.etemp !== (e.etemp ?? 300) || s.settings.temperature !== (e.temperature ?? 300)) { out.problems.push(`${e.key}: did not load as described (${text.slice(0, 60)})`); continue; }
+    const before = c.composition();
+    if (e.pull) { out.rows.push(`${e.title}: loads as ${before}; needs the hand (verified in tests/experiments-screen.mjs)`); continue; }
+    // no hand needed: full speed, until the promised products appear
+    d.getElementById('md-speed').value = 100; d.getElementById('md-speed').dispatchEvent(new w.Event('input'));
+    d.getElementById('md-run').click();
+    const got = await until(() => same(c.composition(), e.products) || status.classList.contains('error'), 25000);
+    const time = s.md ? s.md.time : 0;
+    // and they must last
+    await sleep(1500);
+    const after = c.composition(), failed = status.classList.contains('error');
+    d.getElementById('md-run').click();
+    if (!got || failed || !same(after, e.products)) out.problems.push(`${e.key}: expected ${e.products}, the scene reads ${after}${failed ? '; ' + status.textContent.slice(0, 80) : ''}`);
+    else out.rows.push(`${e.title}: ${before} -> ${after} after ${(time / 1000).toFixed(2)} ps`);
+    await c.md.reset();
+  }
+  // spin by hand: two hydrogen atoms with parallel spins stay apart; set to 0 unpaired, they bond
+  {
+    list.value = 'hh-parallel'; list.dispatchEvent(new w.Event('change'));
+    await until(() => s.experiment?.key === 'hh-parallel' && s.unpaired === 2 && s.molecule?.key === 'h+h' && s.result?.nmo === 2 && d.querySelectorAll('#levels .tag').length === 2, 5000);
+    const marks = [...d.querySelectorAll('#levels .tag')].map((t) => t.textContent.trim()).join(' | ');
+    d.getElementById('md-speed').value = 100; d.getElementById('md-speed').dispatchEvent(new w.Event('input'));
+    d.getElementById('md-run').click();
+    await sleep(3000);
+    const apart = c.composition(), info = d.getElementById('info').textContent;
+    const pick = d.getElementById('unpaired');
+    const options = [...pick.options].map((o) => o.value).join(',');
+    pick.value = '0'; pick.dispatchEvent(new w.Event('change'));
+    const bonded = await until(() => c.composition() === 'H₂', 15000);
+    if (apart !== '2 H' || !bonded || status.classList.contains('error') || !/Unpaired e⁻2/.test(info) || options !== '0,2' || !marks.includes('↑○'))
+      out.problems.push(`spin by hand: with 2 unpaired the scene read ${apart}, after switching to 0 it reads ${c.composition()}; options ${options}; level marks ${marks}; ${status.textContent.slice(0, 60)}`);
+    else out.rows.push(`spin by hand: 2 unpaired electrons -> ${apart} after 3 s (levels: ${marks}); switched to 0 -> ${c.composition()}`);
+    d.getElementById('md-run').click();
+    await c.md.reset();
+  }
+  // choosing a molecule by hand leaves the experiment and its special settings
+  list.value = 'neutral'; list.dispatchEvent(new w.Event('change'));
+  await until(() => s.experiment?.key === 'neutral', 5000);
+  const mol = d.getElementById('mol'); mol.value = 'h2o'; mol.dispatchEvent(new w.Event('change'));
+  await until(() => s.molecule?.key.startsWith('h2o'), 5000);
+  if (s.experiment || list.value !== '' || s.settings.etemp !== 300) out.problems.push('changing the molecule by hand should leave the experiment and reset its electronic temperature');
+  out.ok = out.problems.length === 0 && out.listed === EXPERIMENTS.length;
+} catch (e) { out.ok = false; out.error = String(e.stack || e); }
+await report('done.json', JSON.stringify(out, null, 1));
+</script>

@@ -1,0 +1,312 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root{--text-primary:#141413;--text-secondary:#5f5e5a;--text-danger:#a32d2d;--text-accent:#0c447c;--bg-accent:#e6f1fb;--border:#ddd;--font-sans:system-ui,sans-serif;--radius:8px}
+body{margin:0;padding:16px;width:680px;font-family:var(--font-sans);background:#faf9f5}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+button{background:transparent;border:0.5px solid #999;border-radius:8px;height:36px;font:inherit;cursor:pointer}
+</style></head><body>
+<style>
+.mo-row{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;margin:12px 0 0}
+.mo-row label{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text-primary)}
+.mo-leg{display:flex;flex-wrap:wrap;gap:6px 16px;margin:12px 0 0;font-size:13px;color:var(--text-secondary)}
+.mo-leg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+</style>
+<h2 class="sr-only">Интерактивная молекула: орбитали, посчитанные расширенным методом Хюккеля, показаны объёмным туманом; справа список уровней энергии</h2>
+<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start">
+<div style="position:relative;flex:1 1 420px;min-width:0">
+<canvas id="mo-cv" style="display:block;width:100%;height:420px;border-radius:12px;background:#090a0f;touch-action:none;cursor:grab"></canvas>
+<div id="mo-lab" style="position:absolute;inset:0;pointer-events:none;overflow:hidden;border-radius:12px"></div>
+</div>
+<div style="flex:0 0 172px">
+<div style="font-size:13px;color:var(--text-secondary);margin:0 0 6px;padding:0 8px">Уровни энергии</div>
+<div id="mo-lv" style="display:flex;flex-direction:column;gap:1px"></div>
+</div>
+</div>
+<p id="mo-err" style="display:none;font-size:13px;color:var(--text-danger);margin:8px 0 0"></p>
+<div class="mo-row">
+<label for="mo-mol" style="color:var(--text-secondary)">Молекула</label>
+<select id="mo-mol"><option value="h2o">H₂O, вода</option><option value="nh3">NH₃, аммиак</option><option value="bh3">BH₃, боран</option><option value="c2h4">C₂H₄, этилен</option><option value="pair">BH₃ + NH₃</option></select>
+<label style="cursor:pointer"><input type="checkbox" id="mo-body" checked>Тело молекулы</label>
+<label style="cursor:pointer"><input type="checkbox" id="mo-wob" checked>Покачивание</label>
+</div>
+<div class="mo-row" id="mo-drow" style="display:none">
+<label for="mo-d" style="color:var(--text-secondary)">Расстояние B–N</label>
+<input type="range" id="mo-d" min="1.4" max="4" step="0.02" value="3" style="flex:1;min-width:160px">
+<span id="mo-dv" style="font-size:14px;font-weight:500;min-width:52px">3.00 Å</span>
+</div>
+<div class="mo-leg">
+<span><i style="background:#3885ff"></i>фаза +</span>
+<span><i style="background:#ff801f"></i>фаза −</span>
+<span><i style="background:#8e949f"></i>тело: полная валентная плотность</span>
+<span>пустые орбитали бледнее</span>
+</div>
+<script>
+(function(){
+const BOHR=1.8897259886;
+const G1={a:[2.227660584,0.405771156,0.109818],s:[0.154328967,0.535328142,0.444634542]};
+const G2={a:[0.994203,0.231031,0.0751386],s:[-0.09996723,0.39951283,0.70011547],p:[0.15591627,0.60768372,0.39195739]};
+const EL={H:{z:1.3,Hs:-13.6,ve:1},B:{z:1.3,Hs:-15.2,Hp:-8.5,ve:3},C:{z:1.625,Hs:-21.4,Hp:-11.4,ve:4},N:{z:1.95,Hs:-26.0,Hp:-13.4,ve:5},O:{z:2.275,Hs:-32.3,Hp:-14.8,ve:6}};
+function mkAtom(el,x,y,z){
+const E=EL[el],g=el==='H'?G1:G2,al=g.a.map(v=>v*E.z*E.z);
+let ds=g.s.map((d,i)=>d*Math.pow(2*al[i]/Math.PI,0.75));
+let dp=g.p?g.p.map((d,i)=>d*Math.pow(2*al[i]/Math.PI,0.75)*2*Math.sqrt(al[i])):[0,0,0];
+let ns=0,np=0;
+for(let i=0;i<3;i++)for(let j=0;j<3;j++){const p=al[i]+al[j],b=Math.pow(Math.PI/p,1.5);ns+=ds[i]*ds[j]*b;np+=dp[i]*dp[j]*b/(2*p);}
+ds=ds.map(v=>v/Math.sqrt(ns));if(np>0)dp=dp.map(v=>v/Math.sqrt(np));
+return {el,r:[x*BOHR,y*BOHR,z*BOHR],al,ds,dp,E};
+}
+function basis(atoms){const b=[];atoms.forEach((a,k)=>{b.push({k,t:0});if(a.el!=='H'){b.push({k,t:1});b.push({k,t:2});b.push({k,t:3});}});return b;}
+function ovl(A,ta,B,tb){
+let s=0;const ca=ta?A.dp:A.ds,cb=tb?B.dp:B.ds;
+let ab2=0;for(let d=0;d<3;d++)ab2+=(A.r[d]-B.r[d])**2;
+for(let i=0;i<3;i++)for(let j=0;j<3;j++){
+const a=A.al[i],b=B.al[j],p=a+b;
+let f=Math.pow(Math.PI/p,1.5)*Math.exp(-a*b/p*ab2);
+for(let d=0;d<3;d++){
+const P=(a*A.r[d]+b*B.r[d])/p,pa=P-A.r[d],pb=P-B.r[d],la=ta===d+1,lb=tb===d+1;
+if(la&&lb)f*=pa*pb+0.5/p;else if(la)f*=pa;else if(lb)f*=pb;
+}
+s+=ca[i]*cb[j]*f;
+}
+return s;
+}
+function jacobi(M,n){
+const a=M.map(r=>r.slice()),v=[];
+for(let i=0;i<n;i++){v.push(new Array(n).fill(0));v[i][i]=1;}
+for(let sw=0;sw<80;sw++){
+let off=0;for(let p=0;p<n;p++)for(let q=p+1;q<n;q++)off+=a[p][q]*a[p][q];
+if(off<1e-22)break;
+for(let p=0;p<n;p++)for(let q=p+1;q<n;q++){
+if(Math.abs(a[p][q])<1e-300)continue;
+const th=(a[q][q]-a[p][p])/(2*a[p][q]);
+const t=(th>=0?1:-1)/(Math.abs(th)+Math.sqrt(th*th+1));
+const c=1/Math.sqrt(t*t+1),s=t*c;
+for(let k=0;k<n;k++){const x=a[k][p],y=a[k][q];a[k][p]=c*x-s*y;a[k][q]=s*x+c*y;}
+for(let k=0;k<n;k++){const x=a[p][k],y=a[q][k];a[p][k]=c*x-s*y;a[q][k]=s*x+c*y;}
+for(let k=0;k<n;k++){const x=v[k][p],y=v[k][q];v[k][p]=c*x-s*y;v[k][q]=s*x+c*y;}
+}
+}
+return {w:a.map((r,i)=>r[i]),v};
+}
+function mm(A,B,n){const C=[];for(let i=0;i<n;i++){C.push([]);for(let j=0;j<n;j++){let t=0;for(let k=0;k<n;k++)t+=A[i][k]*B[k][j];C[i][j]=t;}}return C;}
+function solve(atoms){
+const bs=basis(atoms),n=bs.length,S=[],H=[];
+for(let i=0;i<n;i++){S.push([]);H.push([]);}
+const hd=bs.map(b=>b.t?atoms[b.k].E.Hp:atoms[b.k].E.Hs);
+for(let i=0;i<n;i++)for(let j=0;j<n;j++){
+S[i][j]=i===j?1:ovl(atoms[bs[i].k],bs[i].t,atoms[bs[j].k],bs[j].t);
+H[i][j]=i===j?hd[i]:1.75*S[i][j]*(hd[i]+hd[j])/2;
+}
+const es=jacobi(S,n),X=[];
+for(let i=0;i<n;i++){X.push([]);for(let j=0;j<n;j++){let t=0;for(let k=0;k<n;k++)t+=es.v[i][k]*es.v[j][k]/Math.sqrt(es.w[k]);X[i][j]=t;}}
+const eh=jacobi(mm(mm(X,H,n),X,n),n),C=mm(X,eh.v,n);
+const ord=eh.w.map((e,i)=>i).sort((a,b)=>eh.w[a]-eh.w[b]);
+return {bs,n,S,H,E:ord.map(i=>eh.w[i]),C:ord.map(i=>C.map(r=>r[i])),nocc:atoms.reduce((s,a)=>s+a.E.ve,0)/2};
+}
+function build(name,d){
+const R=Math.PI/180,A=[];
+const nh3=x0=>{const r=1.012,b=Math.asin(Math.sin(106.67*R/2)/Math.sin(60*R));A.push(['N',x0,0,0]);for(let i=0;i<3;i++){const f=(30+120*i)*R;A.push(['H',x0+r*Math.cos(b),r*Math.sin(b)*Math.cos(f),r*Math.sin(b)*Math.sin(f)]);}};
+const bh3=()=>{A.push(['B',0,0,0]);for(let i=0;i<3;i++){const f=(90+120*i)*R;A.push(['H',0,1.19*Math.cos(f),1.19*Math.sin(f)]);}};
+if(name==='h2o'){const r=0.9572,h=52.26*R;A.push(['O',0,0,0],['H',r*Math.sin(h),-r*Math.cos(h),0],['H',-r*Math.sin(h),-r*Math.cos(h),0]);}
+else if(name==='nh3')nh3(0);
+else if(name==='bh3')bh3();
+else if(name==='c2h4'){const c=0.6695,r=1.087,h=58.7*R;A.push(['C',c,0,0],['C',-c,0,0]);[[1,1],[1,-1],[-1,1],[-1,-1]].forEach(q=>A.push(['H',q[0]*(c+r*Math.cos(h)),q[1]*r*Math.sin(h),0]));}
+else{bh3();nh3(d);}
+const m=[0,0,0];A.forEach(a=>{for(let i=0;i<3;i++)m[i]+=a[i+1]/A.length;});
+return A.map(a=>mkAtom(a[0],a[1]-m[0],a[2]-m[1],a[3]-m[2]));
+}
+const el=id=>document.getElementById(id);
+const cv=el('mo-cv'),lab=el('mo-lab'),lv=el('mo-lv'),err=el('mo-err');
+const gl=cv.getContext('webgl2',{antialias:false,alpha:false});
+if(!gl){err.textContent='WebGL2 недоступен в этом браузере.';err.style.display='block';return;}
+const vs=`#version 300 es
+void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.0-1.0,0.0,1.0);}`;
+const fs=`#version 300 es
+precision highp float;
+out vec4 o;
+uniform vec2 uR;
+uniform vec3 uCam;
+uniform float uRb,uGhost,uBody;
+uniform int uNA,uNO;
+uniform vec3 uPos[8],uAl[8],uDs[8],uDp[8];
+uniform vec4 uOcc[64],uSel[8];
+const vec3 CPc=vec3(0.22,0.52,1.0);
+const vec3 CNc=vec3(1.0,0.5,0.12);
+float ign(vec2 p){return fract(52.9829189*fract(dot(p,vec2(0.06711056,0.00583715))));}
+float erfa(float x){float x2=x*x;return sign(x)*sqrt(1.0-exp(-x2*(1.2732395+0.147*x2)/(1.0+0.147*x2)));}
+float bandI(float l0,float l1,float lvl,float w){
+float x0=(l0-lvl)/w,x1=(l1-lvl)/w,dx=x1-x0;
+if(abs(dx)<1e-3)return exp(-x0*x0);
+return 0.8862269*(erfa(x1)-erfa(x0))/dx;
+}
+void ev(vec3 p,out float psi,out vec3 g,out float rho){
+psi=0.0;g=vec3(0.0);rho=0.0;
+vec4 chi[8];
+for(int k=0;k<uNA;k++){
+vec3 r=p-uPos[k];
+vec3 e=exp(-uAl[k]*dot(r,r));
+float S=dot(uDs[k],e),P=dot(uDp[k],e);
+float S1=-2.0*dot(uDs[k]*uAl[k],e),P1=-2.0*dot(uDp[k]*uAl[k],e);
+vec4 c=uSel[k];
+float cr=dot(c.yzw,r);
+psi+=c.x*S+cr*P;
+g+=(c.x*S1+cr*P1)*r+c.yzw*P;
+chi[k]=vec4(S,r*P);
+}
+if(uBody>0.5){
+for(int m=0;m<uNO;m++){
+float q=0.0;
+for(int k=0;k<uNA;k++)q+=dot(uOcc[m*8+k],chi[k]);
+rho+=2.0*q*q;
+}
+}
+}
+void main(){
+vec2 uv=(gl_FragCoord.xy*2.0-uR)/uR.y;
+float cy=cos(uCam.x),sy=sin(uCam.x),cp=cos(uCam.y),sp=sin(uCam.y);
+vec3 ro=uCam.z*vec3(sy*cp,sp,cy*cp);
+vec3 fw=normalize(-ro);
+vec3 rt=normalize(cross(fw,vec3(0.0,1.0,0.0)));
+vec3 up=cross(rt,fw);
+vec3 rd=normalize(fw*2.3+rt*uv.x+up*uv.y);
+vec3 L=normalize(rt*0.55+up*0.75-fw*0.45);
+vec3 bg=vec3(0.006,0.007,0.012);
+float b=dot(ro,rd);
+float h=b*b-(dot(ro,ro)-uRb*uRb);
+vec3 col=vec3(0.0);
+float T=1.0;
+float tN[8];float TN[8];
+for(int k=0;k<8;k++){tN[k]=1e9;TN[k]=1.0;}
+for(int k=0;k<uNA;k++)tN[k]=dot(uPos[k]-ro,rd);
+float gf=mix(1.0,0.45,uGhost);
+if(h>0.0){
+h=sqrt(h);
+float t0=max(-b-h,0.0),t1=-b+h;
+const int N=120;
+float dt=(t1-t0)/float(N);
+float t=t0+dt*ign(gl_FragCoord.xy);
+float lp=-30.0,lb=-30.0;
+for(int i=0;i<N;i++){
+vec3 p=ro+rd*t;
+float psi,rho;vec3 g;
+ev(p,psi,g,rho);
+float l=log(psi*psi+1e-13),lr=log(rho+1e-13);
+if(i==0){lp=l;lb=lr;}
+float so=gf*(3.2*bandI(lp,l,-4.42,0.42)+1.1*bandI(lp,l,-6.44,0.42));
+vec3 c=mix(psi>0.0?CPc:CNc,vec3(1.0),0.3*uGhost);
+vec3 n=-normalize(psi*g+vec3(1e-12));
+float dd=max(dot(n,L),0.0);
+float rim=pow(1.0-abs(dot(n,rd)),2.5);
+vec3 co=c*(0.28+0.85*dd)+0.3*rim*c;
+float sb=uBody>0.5?0.8*bandI(lb,lr,-2.3,0.45):0.0;
+vec3 cb=vec3(0.36,0.38,0.43);
+float s=so+sb;
+float a=1.0-exp(-s*dt);
+col+=T*a*(so*co+sb*cb)/max(s,1e-6);
+T*=1.0-a;
+lp=l;lb=lr;
+t+=dt;
+for(int k=0;k<uNA;k++)if(t<tN[k])TN[k]=T;
+if(T<0.01)break;
+}
+}
+col+=T*bg;
+float dsz=0.00007*uCam.z*uCam.z;
+for(int k=0;k<uNA;k++){
+vec3 v=uPos[k]-ro;
+float d2=dot(v,v)-tN[k]*tN[k];
+col+=vec3(1.0)*exp(-d2/dsz)*(0.25+0.75*TN[k]);
+}
+o=vec4(pow(clamp(col,0.0,1.0),vec3(1.0/2.2)),1.0);
+}`;
+function sh(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;}
+let pr;
+try{pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(pr));}
+catch(e){err.textContent='Шейдер не собрался: '+e.message;err.style.display='block';console.log('[mo] '+e.message);return;}
+gl.useProgram(pr);
+const U={};['uR','uCam','uRb','uGhost','uBody','uNA','uNO','uPos','uAl','uDs','uDp','uOcc','uSel'].forEach(n=>U[n]=gl.getUniformLocation(pr,n));
+const reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+if(reduce)el('mo-wob').checked=false;
+let atoms,sol=null,sel=0,name='h2o',yaw=0.6,pitch=0.3,dist=10,dirty=true,drag=null,scale=Math.min(window.devicePixelRatio||1,1.25),slow=0,last=0,rows=[],tags=[];
+function coef(m){const a=new Float32Array(32);sol.bs.forEach((b,i)=>{a[b.k*4+b.t]=sol.C[m][i];});return a;}
+function upSel(){gl.uniform4fv(U.uSel,coef(sel));gl.uniform1f(U.uGhost,sel>=sol.nocc?1:0);dirty=true;}
+function upload(){
+const P=new Float32Array(24),A=new Float32Array(24),S=new Float32Array(24),D=new Float32Array(24);let mr=0;
+atoms.forEach((a,k)=>{for(let i=0;i<3;i++){P[k*3+i]=a.r[i];A[k*3+i]=a.al[i];S[k*3+i]=a.ds[i];D[k*3+i]=a.dp[i];}mr=Math.max(mr,Math.hypot(a.r[0],a.r[1],a.r[2]));});
+gl.uniform1i(U.uNA,atoms.length);gl.uniform3fv(U.uPos,P);gl.uniform3fv(U.uAl,A);gl.uniform3fv(U.uDs,S);gl.uniform3fv(U.uDp,D);
+const O=new Float32Array(256);for(let m=0;m<sol.nocc;m++)O.set(coef(m),m*32);
+gl.uniform1i(U.uNO,sol.nocc);gl.uniform4fv(U.uOcc,O);
+dist=2.3*(mr+2.6);gl.uniform1f(U.uRb,mr+4.5);
+upSel();
+}
+function mark(){rows.forEach((b,m)=>{const on=m===sel;b.style.background=on?'var(--bg-accent)':'transparent';b.style.color=on?'var(--text-accent)':'var(--text-primary)';tags[m].style.color=on?'var(--text-accent)':'var(--text-secondary)';b.setAttribute('aria-pressed',on?'true':'false');});}
+function levels(){
+lv.textContent='';rows=[];tags=[];
+for(let m=sol.n-1;m>=0;m--){
+const b=document.createElement('button');
+b.style.cssText='display:flex;justify-content:space-between;align-items:center;gap:6px;border:none;padding:3px 8px;font-size:13px;height:auto;min-height:0;width:100%;font-variant-numeric:tabular-nums;border-radius:var(--radius)';
+const e=document.createElement('span');e.textContent=sol.E[m].toFixed(2).replace('-','−')+' эВ';
+const t=document.createElement('span');t.style.fontSize='12px';
+t.textContent=(m===sol.nocc-1?'HOMO ':m===sol.nocc?'LUMO ':'')+(m<sol.nocc?'●●':'○○');
+b.append(e,t);
+b.addEventListener('click',()=>{sel=m;upSel();mark();});
+lv.appendChild(b);rows[m]=b;tags[m]=t;
+}
+mark();
+}
+function mkLabels(){lab.textContent='';atoms.forEach(a=>{const s=document.createElement('span');s.textContent=a.el;s.style.cssText='position:absolute;left:0;top:0;font-size:12px;color:rgba(255,255,255,0.8);will-change:transform';lab.appendChild(s);});}
+function recompute(keep){
+atoms=build(name,parseFloat(el('mo-d').value));
+const s=solve(atoms);
+for(let m=0;m<s.n;m++){
+let t=0;
+if(keep&&sol&&sol.n===s.n){for(let i=0;i<s.n;i++)for(let j=0;j<s.n;j++)t+=sol.C[m][i]*s.S[i][j]*s.C[m][j];}
+else{let bi=0;for(let i=1;i<s.n;i++)if(Math.abs(s.C[m][i])>Math.abs(s.C[m][bi])+1e-9)bi=i;t=s.C[m][bi];}
+if(t<0)s.C[m]=s.C[m].map(v=>-v);
+}
+if(!keep)sel=s.nocc-1;
+sol=s;upload();levels();
+if(!keep)mkLabels();
+}
+function size(){const w=Math.max(1,Math.round(cv.clientWidth*scale)),h=Math.max(1,Math.round(cv.clientHeight*scale));if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;dirty=true;}}
+function place(y){
+const W=cv.clientWidth,H=cv.clientHeight,cp=Math.cos(pitch);
+const ro=[dist*Math.sin(y)*cp,dist*Math.sin(pitch),dist*Math.cos(y)*cp],fw=ro.map(v=>-v/dist);
+const rl=Math.hypot(fw[2],fw[0]),rt=[-fw[2]/rl,0,fw[0]/rl];
+const up=[rt[1]*fw[2]-rt[2]*fw[1],rt[2]*fw[0]-rt[0]*fw[2],rt[0]*fw[1]-rt[1]*fw[0]];
+atoms.forEach((a,k)=>{
+const v=[a.r[0]-ro[0],a.r[1]-ro[1],a.r[2]-ro[2]];
+const z=v[0]*fw[0]+v[1]*fw[1]+v[2]*fw[2];
+const x=(v[0]*rt[0]+v[1]*rt[1]+v[2]*rt[2])/z*2.3,yy=(v[0]*up[0]+v[1]*up[1]+v[2]*up[2])/z*2.3;
+const s=lab.children[k];if(s)s.style.transform='translate('+(W/2+x*H/2+7).toFixed(1)+'px,'+(H/2-yy*H/2-19).toFixed(1)+'px)';
+});
+}
+function frame(ts){
+size();
+const wob=el('mo-wob').checked&&!drag;
+if(dirty||wob){
+if(wob&&last){slow=ts-last>45?slow+1:0;if(slow>6&&scale>0.55){scale*=0.8;slow=0;size();}}
+last=wob?ts:0;
+const y=yaw+(wob?0.22*Math.sin(ts*0.0008):0);
+gl.viewport(0,0,cv.width,cv.height);
+gl.uniform2f(U.uR,cv.width,cv.height);
+gl.uniform3f(U.uCam,y,pitch,dist);
+gl.uniform1f(U.uBody,el('mo-body').checked?1:0);
+gl.drawArrays(gl.TRIANGLES,0,3);
+place(y);
+dirty=false;
+}
+requestAnimationFrame(frame);
+}
+el('mo-mol').addEventListener('change',e=>{name=e.target.value;el('mo-drow').style.display=name==='pair'?'flex':'none';recompute(false);});
+el('mo-d').addEventListener('input',e=>{el('mo-dv').textContent=parseFloat(e.target.value).toFixed(2)+' Å';recompute(true);});
+el('mo-body').addEventListener('change',()=>{dirty=true;});
+el('mo-wob').addEventListener('change',()=>{dirty=true;});
+cv.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY};cv.setPointerCapture(e.pointerId);cv.style.cursor='grabbing';});
+cv.addEventListener('pointermove',e=>{if(!drag)return;yaw-=(e.clientX-drag.x)*0.008;pitch=Math.max(-1.4,Math.min(1.4,pitch+(e.clientY-drag.y)*0.008));drag={x:e.clientX,y:e.clientY};dirty=true;});
+const end=()=>{drag=null;cv.style.cursor='grab';};
+cv.addEventListener('pointerup',end);cv.addEventListener('pointercancel',end);
+recompute(false);
+requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

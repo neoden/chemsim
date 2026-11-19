@@ -1,0 +1,112 @@
+<!doctype html><meta charset="utf-8"><title>dynamics check</title>
+<style>body{margin:0;background:#222}iframe{border:0;display:block}</style>
+<iframe id="app" width="1400" height="900"></iframe>
+<script type="module">
+// Stage 3 in the browser: the dynamics runs in the worker, the picture follows, the controls
+// work, orbitals do not flicker, and how many steps per second this machine does.
+const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
+const frame = document.getElementById('app');
+const out = { ok: true, checks: [], speed: [] };
+const note = (text, good) => { out.checks.push(`${good ? 'ok   ' : 'WRONG'} ${text}`); if (!good) out.ok = false; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function openApp(query) {
+  const done = new Promise((r) => frame.addEventListener('load', r, { once: true }));
+  frame.src = '/app/index.html?wobble=0&' + query;
+  await done;
+  const w = frame.contentWindow;
+  while (!w.chemsim) await sleep(20);
+  await w.chemsim.ready;
+  return w;
+}
+const until = async (cond, ms = 30000) => { const t = performance.now(); while (!cond()) { if (performance.now() - t > ms) return false; await sleep(20); } return true; };
+const dist = (p, i, j) => Math.hypot(p[3 * i] - p[3 * j], p[3 * i + 1] - p[3 * j + 1], p[3 * i + 2] - p[3 * j + 2]) * 0.529177210903;
+try {
+  // ---- free dynamics of water at full speed: energy conservation, pause, single step, reset
+  {
+    const w = await openApp('mol=h2o&seed=1&speed=0&thermostat=0&temp=300'), c = w.chemsim, d = w.document, s = c.state;
+    const x0 = Array.from(s.molecule.positions);
+    d.getElementById('md-run').click();
+    await until(() => s.md?.steps > 0);
+    const e0 = s.md.etot;
+    await sleep(3000);
+    note('while running the button reads "pause"', d.getElementById('md-run').textContent.includes('Pause'));
+    note(`water runs: ${s.md.steps} steps, ${(s.md.time / 1000).toFixed(2)} ps in 3 s; ${s.frames} frames shown`, s.md.running && s.md.steps > 500 && s.frames > 50);
+    out.speed.push(`H2O: ${Math.round(s.md.rate)} steps/s (full speed, frames drawn at the same time)`);
+    note(`without thermostat the total energy moved by ${Math.abs(s.md.etot - e0).toExponential(1)} Eh over ${(s.md.time / 1000).toFixed(2)} ps`, Math.abs(s.md.etot - e0) < 5e-5);
+    note(`the info panel shows time, temperature and the three energies: "${d.getElementById('info').textContent.slice(0, 60)}…"`, /Time.*Temperature.*E potential.*E kinetic.*E total/.test(d.getElementById('info').textContent));
+    d.getElementById('md-run').click();
+    await until(() => !s.md.running);
+    await sleep(200);
+    const paused = s.md.steps;
+    await sleep(400);
+    note('pause stops the clock', s.md.steps === paused && d.getElementById('md-run').textContent.includes('Start'));
+    const t = s.md.time;
+    d.getElementById('md-step').click();
+    await until(() => s.md.steps === paused + 1, 3000);
+    note(`"step" advances exactly one step of ${s.settings.dt} fs`, s.md.steps === paused + 1 && Math.abs(s.md.time - t - s.settings.dt) < 1e-9);
+    d.getElementById('md-reset').click();
+    await until(() => !s.md && s.molecule.positions.every((v, i) => Math.abs(v - x0[i]) < 1e-12), 5000);
+    note('"reset" brings the library geometry back and ends the session', !s.md && s.molecule.positions.every((v, i) => Math.abs(v - x0[i]) < 1e-12));
+  }
+  // ---- 8 atoms: steps per second, orbital continuity, cut plane following the nuclei
+  // Watches every frame: the selected orbital must stay itself, with the same sign. Orbital 4
+  // of the adduct is non-degenerate; the HOMO is one of a nearly degenerate pair, whose two
+  // members genuinely turn into each other as the molecule vibrates.
+  for (const [orb, speed, strict] of [[4, 0, true], ['homo', 100, false]]) {
+    const w = await openApp(`mol=bh3nh3&seed=2&speed=${speed}&temp=300&plane=along:0,4&orb=${orb}`), c = w.chemsim, s = c.state;
+    let flips = 0, jumps = 0, frames = 0, prev = null;
+    // called by the app after every frame it shows (a timer here would be starved when the
+    // machine is busy)
+    c.onShown = () => {
+      const r = s.result, m = s.selected, v = r.coeff.subarray(m * r.nao, (m + 1) * r.nao);
+      if (prev) {
+        let dot = 0, n1 = 0, n2 = 0;
+        for (let i = 0; i < r.nao; i++) { dot += v[i] * prev[i]; n1 += v[i] * v[i]; n2 += prev[i] * prev[i]; }
+        const cos = dot / Math.sqrt(n1 * n2);
+        if (cos < 0) flips++; else if (cos < 0.5) jumps++;
+        frames++;
+      }
+      prev = Float64Array.from(v);
+    };
+    c.md.run();
+    await until(() => s.md?.steps > 0);
+    await sleep(4000);
+    c.onShown = null;
+    if (strict) out.speed.push(`BH3NH3: ${Math.round(s.md.rate)} steps/s (full speed, frames and the cut drawn at the same time)`);
+    note(`orbital ${orb} at ${speed || 'full'} speed, ${frames} frame changes at 300 K: ${flips} sign flips, ${jumps} changes of shape`, frames > 50 && flips === 0 && (!strict || jumps === 0));
+    c.md.pause();
+    await until(() => !s.md.running);
+    if (strict) await report('md-bh3nh3-300K.png', c.snapshot());
+  }
+  // ---- heating: the adduct falls apart at the B-N bond
+  {
+    const w = await openApp('mol=bh3nh3&seed=1&speed=0&temp=1500'), c = w.chemsim, s = c.state;
+    await report('md-bh3nh3-before.png', c.snapshot());
+    c.md.run();
+    const broke = await until(() => dist(s.molecule.positions, 0, 4) > 3.0, 40000);
+    c.md.pause();
+    await until(() => !s.md.running);
+    const p = s.molecule.positions;
+    note(`at 1500 K the B-N bond passes 3 A after ${(s.md.time / 1000).toFixed(2)} ps of simulation; B-H max ${Math.max(dist(p, 0, 1), dist(p, 0, 2), dist(p, 0, 3)).toFixed(2)} A`, broke);
+    await report('md-bh3nh3-broken.png', c.snapshot());
+    const far = Math.max(...Array.from({ length: 8 }, (_, i) => Math.hypot(p[3 * i], p[3 * i + 1], p[3 * i + 2])));
+    note(`fragments are inside the wall region (farthest nucleus ${far.toFixed(2)} bohr, wall at ${s.md.wallRadius.toFixed(2)})`, far < s.md.wallRadius + 2.5);
+  }
+  // ---- an electronic failure pauses with a clear message
+  {
+    const w = await openApp('mol=h2o&seed=1'), c = w.chemsim, s = c.state, d = w.document;
+    c.md.run();
+    await until(() => s.md?.steps > 2);
+    c.frame({ type: 'md-frame', session: s.md.session, running: false, error: 'SCF did not converge in 250 iterations', converged: false });
+    const text = d.getElementById('status').textContent;
+    note(`a non-converged step pauses with a message: "${text.slice(0, 70)}…"`, !s.md.running && /did not converge/.test(text) && d.getElementById('status').classList.contains('error'));
+    c.md.pause();
+  }
+  // ---- Hückel has no forces
+  {
+    const w = await openApp('mol=h2o&engine=eht'), d = w.document;
+    note('with the Hückel method the dynamics controls are disabled and say why', d.getElementById('md-run').disabled && /gives no forces/.test(d.getElementById('md-note').textContent));
+  }
+} catch (e) { out.ok = false; out.error = String(e.stack || e); }
+await report('done.json', JSON.stringify(out, null, 1));
+</script>

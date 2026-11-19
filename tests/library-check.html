@@ -1,0 +1,57 @@
+<!doctype html><meta charset="utf-8"><title>library check</title>
+<style>body{margin:0;background:#222}iframe{border:0;display:block}</style>
+<iframe id="app" width="1400" height="900"></iframe>
+<script type="module">
+// Every molecule of the library opens with both methods, is drawn, and (GFN2-xTB) runs a
+// few steps of dynamics; ions included.
+const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
+const frame = document.getElementById('app');
+const out = { ok: true, rows: [], problems: [] };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (cond, ms = 15000) => { const t = performance.now(); while (!cond()) { if (performance.now() - t > ms) return false; await sleep(15); } return true; };
+try {
+  const done = new Promise((r) => frame.addEventListener('load', r, { once: true }));
+  frame.src = '/app/index.html?wobble=0&speed=0&seed=1';
+  await done;
+  const w = frame.contentWindow;
+  while (!w.chemsim) await sleep(20);
+  await w.chemsim.ready;
+  const c = w.chemsim, s = c.state, d = w.document, sel = d.getElementById('mol');
+  const keys = [...sel.options].map((o) => o.value);
+  out.groups = [...sel.querySelectorAll('optgroup')].map((g) => `${g.label}: ${g.children.length}`).join(', ');
+  const status = () => d.getElementById('status');
+  for (const key of keys) {
+    sel.value = key; sel.dispatchEvent(new w.Event('change'));
+    const row = { key };
+    for (const engine of ['xtb', 'eht']) {
+      await until(() => s.molecule?.key === key, 8000);
+      const button = d.querySelector(`#engine [data-engine="${engine}"]`);
+      // elements without Hückel parameters: the button must be off, and that is all
+      const supported = s.molecule.numbers.every((z) => [1, 5, 6, 7, 8].includes(z)) && s.molecule.electrons % 2 === 0 && s.unpaired === 0;
+      if (engine === 'eht' && !supported) { if (!button.disabled) out.problems.push(`${key}: the Hückel button should be disabled`); row.eht = 'off'; continue; }
+      if (button.disabled) { out.problems.push(`${key}: the ${engine} button is disabled`); continue; }
+      button.click();
+      const good = await until(() => s.molecule?.key === key && s.result?.engine === engine && !status().classList.contains('error'), 8000);
+      if (!good) { out.problems.push(`${key} with ${engine}: ${status().textContent || 'no result'}`); continue; }
+      const px = new Uint8Array(4), gl = c.renderer.gl;
+      c.snapshot(); gl.readPixels(gl.drawingBufferWidth >> 1, gl.drawingBufferHeight >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      if (gl.isContextLost() || gl.getError()) out.problems.push(`${key} with ${engine}: drawing failed`);
+      const occ = Array.from(s.result.occ).reduce((a, b) => a + b, 0);
+      if (engine === 'xtb') { row.atoms = s.molecule.elements.length; row.electrons = Math.round(occ); row.charge = s.molecule.charge; row.unpaired = s.unpaired; row.ms = +s.result.ms.toFixed(1); }
+    }
+    d.querySelector('#engine [data-engine="xtb"]').click();
+    await until(() => s.result?.engine === 'xtb' && s.molecule?.key === key);
+    c.md.run();
+    const ran = await until(() => s.md?.steps >= 20 || status().classList.contains('error'), 8000);
+    if (!ran || status().classList.contains('error')) out.problems.push(`${key}: dynamics: ${status().textContent || 'did not start'}`);
+    else row.rate = Math.round(s.md.rate || 0);
+    await c.md.reset();
+    out.rows.push(`${key.padEnd(8)} ${String(row.atoms).padStart(2)} atoms  charge ${row.charge >= 0 ? '+' : ''}${row.charge}  ${row.electrons} valence e${row.unpaired ? `, ${row.unpaired} unpaired` : ''}${row.eht ? '  (no Hückel)' : ''}`);
+  }
+  out.count = keys.length;
+  out.noHuckel = out.rows.filter((r) => r.includes('no Hückel')).length;
+  out.unpaired = out.rows.filter((r) => r.includes('unpaired')).map((r) => r.split(/\s+/)[0] + ':' + r.match(/(\d) unpaired/)[1]).join(' ');
+  out.ok = out.problems.length === 0 && keys.length > 75;
+} catch (e) { out.ok = false; out.error = String(e.stack || e); }
+await report('done.json', JSON.stringify(out, null, 1));
+</script>

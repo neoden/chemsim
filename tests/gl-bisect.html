@@ -1,0 +1,45 @@
+<!doctype html><meta charset="utf-8"><title>gl bisect</title>
+<canvas id="c" width="300" height="200"></canvas>
+<script type="module">
+// Finds the GL call after which the context is lost.
+const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
+const out = { ok: true, stages: [] };
+try {
+  const { FogRenderer } = await import('/app/src/render/fog.js');
+  const { createEhtEngine } = await import('/app/src/engine/eht.js');
+  const lib = await (await fetch('/app/src/library.json')).json();
+  const m = lib.molecules[0], pos = Float64Array.from(m.xyz, (v) => v / 0.529177210903);
+  const res = createEhtEngine().compute({ numbers: m.elements.map((e) => ({ H: 1, O: 8 })[e]), positions: pos, charge: 0 });
+  const r = new FogRenderer(document.getElementById('c'), { bodyGrid: false });
+  const gl = r.gl;
+  out.gpu = r.rendererName();
+  const calls = [];
+  // wrap every GL function: after each call, ask whether the context is still there
+  for (const k in gl) {
+    if (typeof gl[k] !== 'function' || k === 'isContextLost' || k === 'getError') continue;
+    const f = gl[k].bind(gl);
+    gl[k] = (...a) => {
+      const v = f(...a);
+      if (!out.lostAfter) {
+        calls.push(k);
+        if (['linkProgram', 'drawArrays', 'texImage2D', 'texStorage3D', 'compileShader', 'checkFramebufferStatus'].includes(k)) {
+          gl.finish?.call(gl);
+          if (gl.isContextLost()) out.lostAfter = `${k} (#${calls.length}), previous: ${calls.slice(-6, -1).join(', ')}`;
+        }
+      }
+      return v;
+    };
+  }
+  const stage = async (name, fn) => {
+    fn();
+    await new Promise((r) => setTimeout(r, 300));
+    out.stages.push(`${name}: ${gl.isContextLost() ? 'LOST' : 'ok'}`);
+  };
+  await stage('setScene (exact program, textures)', () => r.setScene(Float32Array.from(pos), res));
+  await stage('draw exact', () => r.draw({ yaw: 0.6, pitch: 0.3, distance: 10 }));
+  await stage('grid program + fill', () => { r.bodyGrid = true; r.setScene(Float32Array.from(pos), res); });
+  await stage('draw fast', () => r.draw({ yaw: 0.6, pitch: 0.3, distance: 10 }));
+  out.ok = !gl.isContextLost();
+} catch (e) { out.ok = false; out.error = String(e.stack || e); }
+await report('done.json', JSON.stringify(out, null, 1));
+</script>

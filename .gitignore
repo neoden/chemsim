@@ -1,0 +1,8 @@
+# Rust build
+target/
+# built site: node tools/build-site.mjs
+/dist/
+# everything the checks save
+/tests/out/
+node_modules/
+chem-sim-brief.zip

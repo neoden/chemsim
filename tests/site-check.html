@@ -1,0 +1,46 @@
+<!doctype html><meta charset="utf-8"><title>site check</title>
+<style>body{margin:0;background:#222}iframe{border:0;display:block}</style>
+<iframe id="app" width="1400" height="900"></iframe>
+<script type="module">
+// Stage 5: the built site (dist/) works from a subfolder, asks for nothing outside it, and
+// carries the licence texts and the source of the module.
+const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
+const frame = document.getElementById('app');
+const out = { ok: true, checks: [] };
+const note = (text, good) => { out.checks.push(`${good ? 'ok   ' : 'WRONG'} ${text}`); if (!good) out.ok = false; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+try {
+  const done = new Promise((r) => frame.addEventListener('load', r, { once: true }));
+  frame.src = '/dist/index.html?wobble=0&mol=bh3&second=nh3&seed=1&speed=0';
+  await done;
+  const w = frame.contentWindow;
+  while (!w.chemsim) await sleep(20);
+  await w.chemsim.ready;
+  const s = w.chemsim.state;
+  note(`the site in the subfolder /dist/ starts and computes (${s.molecule.elements.length} atoms, ${s.result.nmo} orbitals, GFN2-xTB)`, s.result.engine === 'xtb' && s.molecule.nFragments === 2);
+  w.chemsim.md.run();
+  await sleep(1500);
+  note(`the dynamics runs there (${s.md.steps} steps in 1.5 s)`, s.md.steps > 200);
+  w.chemsim.md.pause();
+  const urls = w.performance.getEntriesByType('resource').map((e) => e.name);
+  const outside = urls.filter((u) => !u.startsWith(location.origin + '/dist/'));
+  note(`all ${urls.length} requests of the page stay inside its folder`, urls.length > 8 && outside.length === 0);
+  if (outside.length) out.outside = outside;
+  // the links of the "about" dialog and what they lead to
+  const links = [...w.document.querySelectorAll('#about a')].map((a) => a.getAttribute('href')).filter((h) => !h.startsWith('http'));
+  const pages = {};
+  for (const h of links) { const r = await fetch('/dist/' + h); pages[h] = r.ok ? await r.text() : null; }
+  note(`the "about" dialog links to ${links.join(' and ')}, both present`, links.length === 2 && Object.values(pages).every(Boolean));
+  const inner = (html, base) => [...html.matchAll(/href="([^"#]+)"/g)].map((m) => m[1]).filter((h) => !h.startsWith('http')).map((h) => new URL(h, location.origin + '/dist/' + base).pathname);
+  const targets = [...new Set([...inner(pages['licenses/index.html'], 'licenses/index.html'), ...inner(pages['source/index.html'], 'source/index.html')])];
+  let broken = [];
+  for (const t of targets) { const r = await fetch(t); if (!r.ok) broken.push(t); }
+  note(`every one of the ${targets.length} licence and source files they list is there`, targets.length > 60 && broken.length === 0);
+  if (broken.length) out.broken = broken;
+  const lgpl = await (await fetch('/dist/licenses/LGPL-3.0.txt')).text(), gpl = await (await fetch('/dist/licenses/GPL-3.0.txt')).text();
+  note('the LGPL and GPL texts are the real ones', /GNU LESSER GENERAL PUBLIC LICENSE\s+Version 3/.test(lgpl) && /GNU GENERAL PUBLIC LICENSE\s+Version 3/.test(gpl));
+  const lib = await (await fetch('/dist/source/xtb-wasm/src/lib.rs')).text();
+  note('the source of the wrapper is published next to the module', /xtb_singlepoint/.test(lib));
+} catch (e) { out.ok = false; out.error = String(e.stack || e); }
+await report('done.json', JSON.stringify(out, null, 1));
+</script>

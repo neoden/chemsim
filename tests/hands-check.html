@@ -1,0 +1,187 @@
+<!doctype html><meta charset="utf-8"><title>hands check</title>
+<style>body{margin:0;background:#222}iframe{border:0;display:block}</style>
+<iframe id="app" width="1400" height="900"></iframe>
+<script type="module">
+// Stage 4 in the browser, through real mouse events: a second molecule in the scene, moving
+// and turning it by hand, holding a nucleus on a spring while the dynamics runs, the third
+// colour where the two molecules overlap, the energy chart; BH3 + NH3 become the adduct.
+import { project } from '/app/src/render/fog.js';
+const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
+const frame = document.getElementById('app');
+const out = { ok: true, checks: [] };
+const note = (text, good) => { out.checks.push(`${good ? 'ok   ' : 'WRONG'} ${text}`); if (!good) out.ok = false; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (cond, ms = 30000) => { const t = performance.now(); while (!cond()) { if (performance.now() - t > ms) return false; await sleep(20); } return true; };
+async function openApp(query) {
+  const done = new Promise((r) => frame.addEventListener('load', r, { once: true }));
+  frame.src = '/app/index.html?wobble=0&' + query;
+  await done;
+  const w = frame.contentWindow;
+  while (!w.chemsim) await sleep(20);
+  await w.chemsim.ready;
+  return w;
+}
+const A = 0.529177210903;
+const at = (p, k) => [p[3 * k], p[3 * k + 1], p[3 * k + 2]];
+const dist = (p, i, j) => Math.hypot(...at(p, i).map((v, c) => v - p[3 * j + c])) * A;
+// pixels of a PNG data URL that are clearly green (in-phase overlap) or pink (antiphase)
+async function tint(url) {
+  const img = new Image(); img.src = url; await img.decode();
+  const c = new OffscreenCanvas(img.width, img.height), ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  const d = ctx.getImageData(0, 0, img.width, img.height).data;
+  let green = 0, pink = 0;
+  for (let i = 0; i < d.length; i += 4) { if (d[i + 1] > d[i] + 50 && d[i + 1] > d[i + 2] - 12) green++; /* mint: the green overlap seen through blue fog */ if (d[i] > d[i + 1] + 60 && d[i + 2] > d[i + 1] + 40) pink++; }
+  return { green, pink };
+}
+try {
+  // ---- what the hand moves is the piece that hangs together now, not the original molecule
+  {
+    // one molecule, one piece: dragging on a nucleus is just a view rotation
+    const w = await openApp('mol=bh3nh3'), c = w.chemsim, s = c.state, cv = w.document.getElementById('view');
+    const fire = (type, x, y, extra = {}) => { const r = cv.getBoundingClientRect(); cv.dispatchEvent(new w.PointerEvent(type, { clientX: r.left + x, clientY: r.top + y, pointerId: 1, bubbles: true, ...extra })); };
+    const p0 = Float64Array.from(s.molecule.positions), yaw = s.camera.yaw, [x, y] = project(at(p0, 4), s.camera, cv.clientWidth, cv.clientHeight);
+    fire('pointerdown', x, y); for (let i = 1; i <= 8; i++) fire('pointermove', x + 6 * i, y); fire('pointerup', x + 48, y);
+    note('an intact molecule cannot be pulled apart by hand at rest: dragging on its nucleus turns the view', s.camera.yaw !== yaw && s.molecule.positions.every((v, i) => v === p0[i]));
+  }
+  {
+    // "BH3 + NH3 apart" is one library entry (one original fragment) made of two pieces
+    const w = await openApp('mol=pair'), c = w.chemsim, s = c.state, cv = w.document.getElementById('view');
+    const fire = (type, x, y, extra = {}) => { const r = cv.getBoundingClientRect(); cv.dispatchEvent(new w.PointerEvent(type, { clientX: r.left + x, clientY: r.top + y, pointerId: 1, bubbles: true, ...extra })); };
+    const screen = (k) => project(at(s.molecule.positions, k), s.camera, cv.clientWidth, cv.clientHeight);
+    const cen = (pp, atoms) => [0, 1, 2].map((k) => atoms.reduce((t, a) => t + pp[3 * a + k], 0) / atoms.length);
+    let p0 = Float64Array.from(s.molecule.positions), e0 = s.result.energy, [x, y] = screen(4);
+    fire('pointerdown', x, y); for (let i = 1; i <= 8; i++) fire('pointermove', x + 5 * i, y - 4 * i); fire('pointerup', x + 40, y - 32);
+    await until(() => s.result.energy !== e0, 5000);
+    let p = s.molecule.positions;
+    const shift = [0, 1, 2].map((k) => p[12 + k] - p0[12 + k]);
+    note(`pieces of one former molecule move separately: dragging N carries NH3 by ${(Math.hypot(...shift) * A).toFixed(2)} A, BH3 stays`,
+      Math.hypot(...shift) > 0.3 && [4, 5, 6, 7].every((a) => [0, 1, 2].every((k) => Math.abs(p[3 * a + k] - p0[3 * a + k] - shift[k]) < 1e-9)) && [0, 1, 2, 3].every((a) => [0, 1, 2].every((k) => p[3 * a + k] === p0[3 * a + k])));
+    p0 = Float64Array.from(p); e0 = s.result.energy; [x, y] = screen(4);
+    fire('pointerdown', x, y, { shiftKey: true }); for (let i = 1; i <= 8; i++) fire('pointermove', x + 6 * i, y, { shiftKey: true }); fire('pointerup', x + 48, y, { shiftKey: true });
+    await until(() => s.result.energy !== e0, 5000);
+    p = s.molecule.positions;
+    const c0 = cen(p0, [4, 5, 6, 7]), c1 = cen(p, [4, 5, 6, 7]), drift = Math.hypot(...c1.map((v, k) => v - c0[k])), turned = Math.hypot(...[0, 1, 2].map((k) => p[15 + k] - p0[15 + k]));
+    note(`Shift-drag turns that piece about its own centre, not about the centre of the former molecule (piece centre moved ${drift.toExponential(1)} bohr, an H ${(turned * A).toFixed(2)} A, BH3 untouched)`,
+      drift < 1e-9 && turned > 0.3 && [0, 1, 2, 3].every((a) => [0, 1, 2].every((k) => p[3 * a + k] === p0[3 * a + k])));
+  }
+  const w = await openApp('mol=bh3&seed=3&temp=300&speed=300'), c = w.chemsim, d = w.document, s = c.state, cv = d.getElementById('view');
+  const B = 0, N = 4;
+  const fire = (type, x, y, extra = {}) => { const r = cv.getBoundingClientRect(); cv.dispatchEvent(new w.PointerEvent(type, { clientX: r.left + x, clientY: r.top + y, pointerId: 1, bubbles: true, ...extra })); };
+  const screen = (k) => project(at(s.molecule.positions, k), s.camera, cv.clientWidth, cv.clientHeight);
+  // ---- the second molecule comes from the library
+  const sel = d.getElementById('mol2'); sel.value = 'nh3'; sel.dispatchEvent(new w.Event('change'));
+  await until(() => s.molecule.nFragments === 2, 5000);
+  note(`choosing NH3 as the second molecule gives a scene of ${s.molecule.elements.join('')} in ${s.molecule.nFragments} fragments, B-N ${dist(s.molecule.positions, B, N).toFixed(2)} A`,
+    s.molecule.elements.join('') === 'BHHHNHHH' && Array.from(s.molecule.fragments).join('') === '00001111');
+  note('the legend explains the overlap colours', [...d.querySelectorAll('.two-only')].every((e) => !e.hidden));
+  // ---- nothing running: dragging a nucleus moves its whole molecule, Shift-drag turns it
+  {
+    const p0 = Float64Array.from(s.molecule.positions), e0 = s.result.energy, [x, y] = screen(N);
+    fire('pointerdown', x, y); for (let i = 1; i <= 8; i++) fire('pointermove', x + 5 * i, y - 3 * i); fire('pointerup', x + 40, y - 24);
+    await until(() => s.result.energy !== e0, 5000);
+    const p = s.molecule.positions, shift = [0, 1, 2].map((k) => p[3 * N + k] - p0[3 * N + k]);
+    const rigid = [4, 5, 6, 7].every((a) => [0, 1, 2].every((k) => Math.abs(p[3 * a + k] - p0[3 * a + k] - shift[k]) < 1e-9));
+    const still = [0, 1, 2, 3].every((a) => [0, 1, 2].every((k) => p[3 * a + k] === p0[3 * a + k]));
+    note(`dragging the N nucleus moves all of NH3 by ${(Math.hypot(...shift) * A).toFixed(2)} A and leaves BH3 where it was; the picture is recomputed`, rigid && still && Math.hypot(...shift) > 0.3);
+    const [x2, y2] = screen(N), nh = dist(p, N, 5), p1 = Float64Array.from(p), e1 = s.result.energy;
+    fire('pointerdown', x2, y2, { shiftKey: true }); for (let i = 1; i <= 8; i++) fire('pointermove', x2 + 6 * i, y2, { shiftKey: true }); fire('pointerup', x2 + 48, y2, { shiftKey: true });
+    await until(() => s.result.energy !== e1, 5000);
+    const q = s.molecule.positions, cen = (pp) => [0, 1, 2].map((k) => (pp[12 + k] + pp[15 + k] + pp[18 + k] + pp[21 + k]) / 4);
+    const moved = Math.hypot(...at(q, 5).map((v, k) => v - p1[15 + k])), drift = Math.hypot(...cen(q).map((v, k) => v - cen(p1)[k]));
+    note(`Shift-drag turns NH3 about its own centre (an H moved ${(moved * A).toFixed(2)} A, the centre ${drift.toExponential(1)} bohr, N-H still ${dist(q, N, 5).toFixed(4)} A)`, moved > 0.3 && drift < 1e-9 && Math.abs(dist(q, N, 5) - nh) < 1e-9);
+  }
+  // ---- third colour: bring NH3 to about 2.5 A from boron by hand, nothing running
+  {
+    d.getElementById('mol2').value = ''; d.getElementById('mol2').dispatchEvent(new w.Event('change'));
+    await until(() => s.molecule.nFragments === 1, 5000);
+    d.getElementById('mol2').value = 'nh3'; d.getElementById('mol2').dispatchEvent(new w.Event('change'));
+    await until(() => s.molecule.nFragments === 2, 5000);
+    const before = await tint(c.snapshot());
+    for (let round = 0; round < 6 && dist(s.molecule.positions, B, N) > 2.55; round++) {
+      const p = s.molecule.positions, b = at(p, B), n = at(p, N), len = Math.hypot(...n.map((v, k) => v - b[k])), e = s.result.energy;
+      const goal = b.map((v, k) => v + (n[k] - v) / len * (2.45 / A)); // the point 2.45 A from boron on the B-N line
+      const [x0, y0] = screen(N), [x1, y1] = project(goal, s.camera, cv.clientWidth, cv.clientHeight);
+      fire('pointerdown', x0, y0); for (let i = 1; i <= 10; i++) fire('pointermove', x0 + (x1 - x0) * i / 10, y0 + (y1 - y0) * i / 10); fire('pointerup', x1, y1);
+      await until(() => s.result.energy !== e, 5000);
+    }
+    const url = c.snapshot(), t = await tint(url);
+    await report('hands-on-the-way.png', url);
+    note(`apart the HOMO shows no overlap colour (${before.green + before.pink} pixels); with NH3 placed ${dist(s.molecule.positions, B, N).toFixed(2)} A from boron its parts on the two molecules overlap in the third colours (${t.green} green pixels, ${t.pink} pink)`,
+      before.green + before.pink < 50 && t.green + t.pink > 300);
+  }
+  // ---- fresh scene, dynamics on: take nitrogen and carry it to boron
+  d.getElementById('mol2').value = ''; d.getElementById('mol2').dispatchEvent(new w.Event('change'));
+  await until(() => s.molecule.nFragments === 1, 5000);
+  d.getElementById('mol2').value = 'nh3'; d.getElementById('mol2').dispatchEvent(new w.Event('change'));
+  await until(() => s.molecule.nFragments === 2, 5000);
+  await report('hands-apart.png', c.snapshot());
+  d.getElementById('md-run').click();
+  await until(() => s.md?.steps > 20);
+  // on pause a molecule can be put somewhere else, and the dynamics goes on from there
+  {
+    d.getElementById('md-run').click();
+    await until(() => !s.md.running);
+    await sleep(200);
+    const time = s.md.time, bn0 = dist(s.molecule.positions, B, N), [nx, ny] = screen(N), [bx, by] = screen(B);
+    const len = Math.hypot(nx - bx, ny - by), ux = len > 5 ? (bx - nx) / len : 0, uy = len > 5 ? (by - ny) / len : -1; // towards boron on the screen
+    fire('pointerdown', nx, ny); for (let i = 1; i <= 10; i++) fire('pointermove', nx + 4 * i * ux, ny + 4 * i * uy); fire('pointerup', nx + 40 * ux, ny + 40 * uy);
+    await until(() => Math.abs(dist(s.molecule.positions, B, N) - bn0) > 0.2, 5000);
+    await sleep(300);
+    const bn = dist(s.molecule.positions, B, N);
+    note(`on pause, dragging nitrogen moves NH3 as a whole (B-N ${bn0.toFixed(2)} -> ${bn.toFixed(2)} A) without advancing the clock`, Math.abs(bn - bn0) > 0.2 && s.md.time === time);
+    d.getElementById('md-step').click();
+    await until(() => s.md.time > time, 3000);
+    note('the dynamics continues from the new arrangement', s.md.time > time && Math.abs(dist(s.molecule.positions, B, N) - bn) < 0.05);
+    d.getElementById('md-run').click();
+    await until(() => s.md.running);
+  }
+  const epotApart = s.md.epot, t0 = s.md.time;
+  let [x, y] = screen(N);
+  fire('pointerdown', x, y);
+  note('pressing on a nucleus while the dynamics runs shows the spring line', await until(() => d.getElementById('grab-line').classList.contains('on'), 2000));
+  const reached = await until(() => {
+    const [bx, by] = screen(B), [nx, ny] = screen(N);
+    // aim a little short of boron, so that nitrogen is brought next to it and not through it
+    const len = Math.hypot(nx - bx, ny - by) || 1, k = Math.min(1, 55 / len);
+    fire('pointermove', bx + (nx - bx) * k, by + (ny - by) * k);
+    const bn = dist(s.molecule.positions, B, N);
+    return bn < 2.0;
+  }, 40000);
+  fire('pointerup', 0, 0);
+  const carried = s.md.time - t0;
+  note(`holding nitrogen and leading it to boron brings them within 2 A after ${carried.toFixed(0)} fs of simulation`, reached);
+  note('releasing the mouse removes the spring line', !d.getElementById('grab-line').classList.contains('on'));
+  const tRelease = s.md.time;
+  await until(() => s.md.time > tRelease + 1500, 60000);
+  const p = s.molecule.positions, h = s.md.history;
+  let far = 0;
+  const watch = setInterval(() => { far = Math.max(far, dist(s.molecule.positions, B, N)); }, 10);
+  await until(() => s.md.time > tRelease + 2500, 60000);
+  clearInterval(watch);
+  note(`let go, they stay together: over the next picosecond B-N never exceeds ${far.toFixed(2)} A`, far > 0 && far < 2.1);
+  const tail = h.epot.slice(-Math.floor(h.epot.length / 4)), mean = tail.reduce((a, b) => a + b) / tail.length;
+  note(`the potential energy fell by ${((epotApart - mean) * 27.2114).toFixed(2)} eV, and the chart shows it (${h.t.length} points)`, epotApart - mean > 0.015 && !d.getElementById('md-chart').hidden && d.getElementById('md-chart').width > 50);
+  d.getElementById('md-run').click();
+  await until(() => !s.md.running);
+  await report('hands-adduct.png', c.snapshot());
+  {
+    // the pair that nitrogen shares with boron is the lowest orbital with weight on both
+    const r = s.result, weight = (m, atom) => { let wgt = 0, ao = 0; for (const sh of r.shells) { const n = sh.l ? 3 : 1; if (sh.atom === atom) for (let i = 0; i < n; i++) wgt += r.coeff[m * r.nao + ao + i] ** 2; ao += n; } return wgt; };
+    let bond = -1;
+    for (let m = 0; m < r.nmo && r.occ[m] > 1; m++) if (weight(m, N) > 0.3 && weight(m, B) > 0.05 && (bond < 0 || weight(m, B) > weight(bond, B))) bond = m;
+    c.selectOrbital(bond);
+    const url = c.snapshot(), t = await tint(url);
+    await report('hands-adduct-bond.png', url);
+    note(`in the adduct, the orbital of the B-N bond (${(r.eps[bond] * 27.2114).toFixed(2)} eV) shows the in-phase overlap in green (${t.green} green pixels, ${t.pink} pink)`, bond >= 0 && t.green > 500);
+  }
+  // ---- paused: the adduct is one molecule now, the hand no longer takes it apart
+  {
+    const q0 = Float64Array.from(s.molecule.positions), yaw = s.camera.yaw, [nx, ny] = screen(N);
+    fire('pointerdown', nx, ny); for (let i = 1; i <= 10; i++) fire('pointermove', nx + 8 * i, ny); fire('pointerup', nx + 80, ny);
+    await sleep(300);
+    note('on pause, dragging on a nucleus of the finished adduct turns the view: the two former molecules are one piece now', s.camera.yaw !== yaw && s.molecule.positions.every((v, i) => v === q0[i]));
+  }
+} catch (e) { out.ok = false; out.error = String(e.stack || e); }
+await report('done.json', JSON.stringify(out, null, 1));
+</script>
