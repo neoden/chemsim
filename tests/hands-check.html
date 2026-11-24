@@ -5,7 +5,7 @@
 // Stage 4 in the browser, through real mouse events: a second molecule in the scene, moving
 // and turning it by hand, holding a nucleus on a spring while the dynamics runs, the third
 // colour where the two molecules overlap, the energy chart; BH3 + NH3 become the adduct.
-import { project } from '/app/src/render/fog.js';
+import { project, cameraBasis } from '/app/src/render/fog.js';
 const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
 const frame = document.getElementById('app');
 const out = { ok: true, checks: [] };
@@ -43,6 +43,14 @@ try {
     const p0 = Float64Array.from(s.molecule.positions), yaw = s.camera.yaw, [x, y] = project(at(p0, 4), s.camera, cv.clientWidth, cv.clientHeight);
     fire('pointerdown', x, y); for (let i = 1; i <= 8; i++) fire('pointermove', x + 6 * i, y); fire('pointerup', x + 48, y);
     note('an intact molecule cannot be pulled apart by hand at rest: dragging on its nucleus turns the view', s.camera.yaw !== yaw && s.molecule.positions.every((v, i) => v === p0[i]));
+    // the view turns without end: straight down the screen, over the pole and all the way round
+    const fw0 = cameraBasis(s.camera).fw, dots = [];
+    fire('pointerdown', 40, 40);
+    for (let i = 1; i <= 80; i++) { fire('pointermove', 40, 40 + 10 * i); dots.push(cameraBasis(s.camera).fw.reduce((t, v, k) => t + v * fw0[k], 0)); }
+    fire('pointerup', 40, 840);
+    const b = cameraBasis(s.camera), orth = Math.abs(Math.hypot(...b.rt) - 1) + Math.abs(Math.hypot(...b.up) - 1) + Math.abs(b.rt.reduce((t, v, k) => t + v * b.up[k], 0)) + Math.abs(b.rt.reduce((t, v, k) => t + v * b.fw[k], 0));
+    note(`dragging down by 800 px turns the view over the top and on: ${(80 * 10 * 0.008 * 180 / Math.PI).toFixed(0)} degrees, through the opposite side (cos ${Math.min(...dots).toFixed(3)}) and back past the start (cos ${Math.max(...dots.slice(40)).toFixed(3)})`,
+      Math.min(...dots) < -0.999 && Math.max(...dots.slice(40)) > 0.999 && orth < 1e-9 && Math.abs(dots.at(-1) - Math.cos(6.4)) < 1e-6);
   }
   {
     // "BH3 + NH3 apart" is one library entry (one original fragment) made of two pieces

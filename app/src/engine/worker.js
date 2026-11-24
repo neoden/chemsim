@@ -13,9 +13,13 @@
 //   { type: 'md', cmd: 'run' | 'pause' | 'step' | 'stop' }
 //   { type: 'md', cmd: 'set', params?, etemp?, speed?, unpaired?, grab? }   grab: { atom, target | toAtom + rest, piece? } or null, see md.js
 //   { type: 'md', cmd: 'move', positions, wallRadius }           nuclei placed by hand
-// Messages out: compute results (with the request's id) and { type: 'md-frame', ... }.
+//   { type: 'relax', cmd: 'start', session, numbers, positions, charge, etemp, unpaired }   geometry optimization
+//   { type: 'relax', cmd: 'stop' }
+// Messages out: compute results (with the request's id), { type: 'md-frame', ... } and
+// { type: 'relax-frame', session, done, converged, error?, positions, energy, gmax, steps, result }.
 import { createXtbEngine } from './xtb.js';
 import { Dynamics } from '../md.js';
+import { minimize } from '../relax.js';
 
 let xtb = null, xtbLoading = null;
 async function engine() {
@@ -139,7 +143,37 @@ async function onMd(msg) {
   }
 }
 
+// ---- geometry optimization: the nuclei go downhill to the nearest minimum
+// The largest force left, Eh/bohr: a little looser than the library build (2e-5).
+const RELAX_GTOL = 5e-5, RELAX_STEPS = 600;
+let relaxing = null;
+async function onRelax(msg) {
+  if (msg.cmd !== 'start') { relaxing = null; return; }
+  const job = relaxing = { session: msg.session };
+  const xtb = await engine();
+  let error = null;
+  const walk = minimize((x) => {
+    const r = xtb.compute({ numbers: msg.numbers, positions: x, charge: msg.charge, etemp: msg.etemp, unpaired: msg.unpaired, forces: true });
+    if (!r.ok) { error = r.error; return { e: Infinity }; }
+    return { e: r.energy, g: r.forces.map((f) => -f), r };
+  }, msg.positions, { gtol: RELAX_GTOL, maxIter: RELAX_STEPS });
+  let sent = performance.now();
+  for (;;) {
+    const step = walk.next(), v = step.value, now = performance.now();
+    if (step.done || now - sent > TICK) {
+      postMessage({ type: 'relax-frame', session: job.session, done: step.done, converged: !!v.converged, error: v.failed ? error : undefined,
+        positions: v.x, energy: v.e, gmax: v.gmax, steps: v.it, result: v.point.r });
+      if (step.done) break;
+      await sleep(0); // lets a 'stop' through
+      if (relaxing !== job) return;
+      sent = performance.now();
+    }
+  }
+  if (relaxing === job) relaxing = null;
+}
+
 onmessage = (e) => {
-  if (e.data.type === 'md') onMd(e.data).catch((err) => postMessage({ type: 'md-frame', session: e.data.session, running: false, error: String(err?.message ?? err), converged: true }));
+  if (e.data.type === 'relax') onRelax(e.data).catch((err) => postMessage({ type: 'relax-frame', session: e.data.session, done: true, converged: false, error: String(err?.message ?? err) }));
+  else if (e.data.type === 'md') onMd(e.data).catch((err) => postMessage({ type: 'md-frame', session: e.data.session, running: false, error: String(err?.message ?? err), converged: true }));
   else { pending = e.data; drain(); }
 };

@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createXtbEngine } from '../app/src/engine/xtb.js';
 import { BOHR_ANGSTROM, NUMBERS } from '../app/src/units.js';
 import { pieces } from '../app/src/scene.js';
+import { minimize } from '../app/src/relax.js';
 
 const root = new URL('../', import.meta.url);
 const xtb = await createXtbEngine(readFileSync(new URL('app/engine/xtb_wasm.wasm', root)));
@@ -186,37 +187,15 @@ function energyAndGradient(numbers, x, charge = 0) {
   return { e: r.energy, g: r.forces.map((f) => -f), r };
 }
 
-// BFGS in Cartesian coordinates with a step cap and backtracking; x in bohr
+// x in bohr; see app/src/relax.js
 function optimize(numbers, x0, charge = 0, gtol = 2e-5, maxIter = 800) {
-  const n = x0.length;
-  let x = Float64Array.from(x0), { e, g } = energyAndGradient(numbers, x, charge);
-  let H = Array.from({ length: n }, (_, i) => { const row = new Float64Array(n); row[i] = 2; return row; }); // inverse Hessian guess
-  for (let it = 0; it < maxIter; it++) {
-    const gmax = g.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
-    if (gmax < gtol) return { x, e, gmax, it };
-    let d = new Float64Array(n);
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) d[i] -= H[i][j] * g[j];
-    if (d.reduce((s, v, i) => s + v * g[i], 0) >= 0) d = g.map((v) => -v); // not a descent direction
-    const dmax = d.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
-    let scale = Math.min(1, 0.3 / dmax), next, xn;
-    for (;;) {
-      xn = x.map((v, i) => v + scale * d[i]);
-      next = energyAndGradient(numbers, xn, charge);
-      if (next.e <= e + 1e-10 || scale < 1e-4) break;
-      scale *= 0.4;
-    }
-    const s = xn.map((v, i) => v - x[i]), y = next.g.map((v, i) => v - g[i]);
-    const sy = s.reduce((t, v, i) => t + v * y[i], 0);
-    if (sy > 1e-12) {
-      const Hy = new Float64Array(n);
-      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) Hy[i] += H[i][j] * y[j];
-      const yHy = y.reduce((t, v, i) => t + v * Hy[i], 0);
-      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++)
-        H[i][j] += ((sy + yHy) * s[i] * s[j]) / (sy * sy) - (Hy[i] * s[j] + s[i] * Hy[j]) / sy;
-    }
-    x = xn; e = next.e; g = next.g;
+  const walk = minimize((x) => energyAndGradient(numbers, x, charge), x0, { gtol, maxIter });
+  for (;;) {
+    const step = walk.next();
+    if (!step.done) continue;
+    if (!step.value.converged) throw new Error('geometry optimization did not converge');
+    return step.value;
   }
-  throw new Error('geometry optimization did not converge');
 }
 
 const dist = (x, i, j) => Math.hypot(x[3 * i] - x[3 * j], x[3 * i + 1] - x[3 * j + 1], x[3 * i + 2] - x[3 * j + 2]) * BOHR_ANGSTROM;

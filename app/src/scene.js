@@ -52,6 +52,16 @@ export function buildScene(first, second) {
   };
 }
 
+// The molecule under the editor's hands: any atoms, with the positions (bohr) as they are
+// (the editor keeps it centred itself, and not while an atom is being dragged).
+export function looseScene(elements, positions, charge = 0) {
+  const electrons = electronsOf({ elements, charge });
+  return {
+    key: 'edit', name: '', note: '', charge, elements: [...elements], numbers: elements.map((el) => NUMBERS[el]), positions: Float64Array.from(positions),
+    fragments: new Uint8Array(elements.length), nFragments: 1, electrons, unpaired: electrons % 2,
+  };
+}
+
 // Which atoms currently hang together. Two atoms count as bonded when they are closer than
 // 1.3 times the sum of their covalent radii (and never less than 1.05 A: a vibrating H2
 // stretches past 0.81 A, which the radii alone would call broken); a piece is everything connected through such

@@ -181,7 +181,7 @@ precision highp sampler3D;
 #define MAXAT ${maxAtoms}
 out vec4 o;
 uniform vec2 uR;
-uniform vec3 uCam;
+uniform vec3 uCam,uRt,uUp,uFw; // uCam.z: the camera's distance; the rest: its axes, see cameraBasis
 uniform float uRb,uGhost,uBody;
 uniform int uSteps;
 uniform sampler3D uRho;
@@ -206,11 +206,8 @@ ${grid ? 'return texture(uRho,p/uRb*0.5+0.5).x;' : 'return log(density(p)+1e-13)
 }
 void main(){
 vec2 uv=(gl_FragCoord.xy*2.0-uR)/uR.y;
-float cy=cos(uCam.x),sy=sin(uCam.x),cp=cos(uCam.y),sp=sin(uCam.y);
-vec3 ro=uCam.z*vec3(sy*cp,sp,cy*cp);
-vec3 fw=normalize(-ro);
-vec3 rt=normalize(cross(fw,vec3(0.0,1.0,0.0)));
-vec3 up=cross(rt,fw);
+vec3 fw=uFw,rt=uRt,up=uUp;
+vec3 ro=-uCam.z*fw;
 vec3 rd=normalize(fw*2.3+rt*uv.x+up*uv.y);
 vec3 L=normalize(rt*0.55+up*0.75-fw*0.45);
 vec3 bg=vec3(0.006,0.007,0.012);
@@ -297,7 +294,7 @@ col+=vec3(1.0)*exp(-d2/dsz)*(0.25+0.75*TN[k]);
 o=vec4(pow(clamp(col,0.0,1.0),vec3(1.0/2.2)),1.0);
 }`;
 
-const UNIFORMS = ['uR', 'uCam', 'uRb', 'uGhost', 'uBody', 'uNA', 'uNO', 'uSteps', 'uAtom', 'uShell', 'uPrim', 'uCoef', 'uRho', 'uZ', 'uN',
+const UNIFORMS = ['uR', 'uCam', 'uRt', 'uUp', 'uFw', 'uRb', 'uGhost', 'uBody', 'uNA', 'uNO', 'uSteps', 'uAtom', 'uShell', 'uPrim', 'uCoef', 'uRho', 'uZ', 'uN',
   'uPl', 'uPlMode', 'uFrags', 'uPlField', 'uPlR', 'uC', 'uE1', 'uE2', 'uHalf', 'uRaw'];
 const GRID_SPACING = 0.18; // bohr, target voxel size of the body-density grid
 const bucket = (n, min) => { let b = min; while (b < n) b *= 2; return b; };
@@ -542,7 +539,15 @@ export class FogRenderer {
     this._upload('uCoef', 3, s.nao, 1 + s.nOcc, gl.R32F, gl.RED, s.coef);
   }
 
-  // camera: { yaw, pitch, distance }
+  // the empty background, for a scene that has no cloud to show
+  clear() {
+    const gl = this.gl;
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.clearColor(0.098, 0.105, 0.134, 1); // the shader's background after its gamma
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+
+  // camera: { yaw, pitch, distance } or one turned freely, see turnCamera
   draw(camera, { body = true } = {}) {
     const s = this.scene, gl = this.gl;
     if (!s) return;
@@ -550,7 +555,11 @@ export class FogRenderer {
     gl.useProgram(prog);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.uniform2f(U.uR, this.canvas.width, this.canvas.height);
-    gl.uniform3f(U.uCam, camera.yaw, camera.pitch, camera.distance);
+    const basis = cameraBasis(camera);
+    gl.uniform3f(U.uCam, 0, 0, camera.distance);
+    gl.uniform3fv(U.uRt, basis.rt);
+    gl.uniform3fv(U.uUp, basis.up);
+    gl.uniform3fv(U.uFw, basis.fw);
     this._bind(U);
     gl.uniform1f(U.uGhost, s.ghost);
     gl.uniform1f(U.uBody, body ? 1 : 0);
@@ -570,14 +579,40 @@ export class FogRenderer {
   }
 }
 
-// Camera position and axes, the same as in the shader.
+// Camera position and axes; the shader receives the axes from here. A camera is
+// { yaw, pitch, distance }, looking at the origin with the y axis up, until it has been turned
+// by hand: then it carries its own axes (see turnCamera) and they are what counts.
 export function cameraBasis(camera) {
+  if (camera.axes) { const { fw, rt, up } = camera.axes; return { ro: fw.map((v) => -v * camera.distance), fw, rt, up }; }
   const { yaw, pitch, distance } = camera, cp = Math.cos(pitch);
   const ro = [distance * Math.sin(yaw) * cp, distance * Math.sin(pitch), distance * Math.cos(yaw) * cp];
   const fw = ro.map((v) => -v / distance);
   const rl = Math.hypot(fw[2], fw[0]), rt = [-fw[2] / rl, 0, fw[0] / rl];
   const up = [rt[1] * fw[2] - rt[2] * fw[1], rt[2] * fw[0] - rt[0] * fw[2], rt[0] * fw[1] - rt[1] * fw[0]];
   return { ro, fw, rt, up };
+}
+
+// The camera turned about the origin: by `aboutUp` radians about its own up axis, then by
+// `aboutRight` about its own right axis. Being its own axes, they have no pole to stop at: the
+// view can be turned on and on in any direction. yaw and pitch are kept in step for reference.
+export function turnCamera(camera, aboutUp, aboutRight) {
+  let { fw, rt, up } = cameraBasis(camera);
+  const turn = (v, axis, angle) => {
+    const cs = Math.cos(angle), sn = Math.sin(angle), d = axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2];
+    const cr = [axis[1] * v[2] - axis[2] * v[1], axis[2] * v[0] - axis[0] * v[2], axis[0] * v[1] - axis[1] * v[0]];
+    return v.map((x, i) => x * cs + cr[i] * sn + axis[i] * d * (1 - cs));
+  };
+  fw = turn(fw, up, aboutUp); rt = turn(rt, up, aboutUp);
+  fw = turn(fw, rt, aboutRight);
+  // keep the axes exactly orthonormal over thousands of small turns
+  const fl = Math.hypot(...fw);
+  fw = fw.map((v) => v / fl);
+  const along = rt[0] * fw[0] + rt[1] * fw[1] + rt[2] * fw[2];
+  rt = rt.map((v, i) => v - along * fw[i]);
+  const rl = Math.hypot(...rt);
+  rt = rt.map((v) => v / rl);
+  up = [rt[1] * fw[2] - rt[2] * fw[1], rt[2] * fw[0] - rt[0] * fw[2], rt[0] * fw[1] - rt[1] * fw[0]];
+  return { ...camera, axes: { fw, rt, up }, yaw: Math.atan2(-fw[0], -fw[2]), pitch: Math.asin(Math.max(-1, Math.min(1, -fw[1]))) };
 }
 
 // Screen position (CSS pixels) of a point for the same camera as the shader.

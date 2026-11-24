@@ -1,0 +1,203 @@
+<!doctype html><meta charset="utf-8"><title>editor check</title>
+<style>body{margin:0;background:#222}iframe{border:0;display:block}</style>
+<iframe id="app" width="1400" height="900"></iframe>
+<script type="module">
+// The molecule editor in the browser, through real mouse events: a new molecule grown by
+// its hydrogens, a double bond drawn, an element changed, undo, relaxation with the engine,
+// keeping the result under "My molecules", finding it there after a reload, deleting it.
+import { project } from '/app/src/render/fog.js';
+const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
+const frame = document.getElementById('app');
+const out = { ok: true, checks: [] };
+const note = (text, good) => { out.checks.push(`${good ? 'ok   ' : 'WRONG'} ${text}`); if (!good) out.ok = false; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (cond, ms = 20000) => { const t = performance.now(); while (!cond()) { if (performance.now() - t > ms) return false; await sleep(20); } return true; };
+async function openApp(query) {
+  const done = new Promise((r) => frame.addEventListener('load', r, { once: true }));
+  frame.src = '/app/index.html?wobble=0&' + query;
+  await done;
+  const w = frame.contentWindow;
+  while (!w.chemsim) await sleep(20);
+  await w.chemsim.ready;
+  return w;
+}
+try {
+  let w = await openApp('mol=h2o&t=1');
+  w.localStorage.removeItem('chemsim.molecules');
+  let c = w.chemsim, s = c.state, d = w.document, cv = d.getElementById('view'), ed = c.edit;
+  const $ = (id) => d.getElementById(id);
+  const status = () => $('status');
+  const fire = (type, x, y, extra = {}) => { const r = cv.getBoundingClientRect(); cv.dispatchEvent(new w.PointerEvent(type, { clientX: r.left + x, clientY: r.top + y, pointerId: 1, bubbles: true, ...extra })); };
+  const screen = (k) => { const m = ed.molecule(); return project(m.positions.slice(3 * k, 3 * k + 3), s.camera, cv.clientWidth, cv.clientHeight); };
+  const click = (x, y) => { fire('pointerdown', x, y); fire('pointerup', x, y); };
+  const dragTo = (x1, y1, x2, y2) => { fire('pointerdown', x1, y1); for (let i = 1; i <= 6; i++) fire('pointermove', x1 + (x2 - x1) * i / 6, y1 + (y2 - y1) * i / 6); fire('pointerup', x2, y2); };
+  const formula = () => c.composition();
+  // the cloud on the screen belongs to the molecule in the editor
+  const shown = () => until(() => s.result && s.molecule.elements.length === ed.molecule().elements.length && s.result.shells.at(-1).atom === s.molecule.elements.length - 1
+    && Array.from(s.molecule.positions).every((v, i) => v === ed.molecule().positions[i]) && c.renderer.scene.nat === s.molecule.elements.length);
+  const heavy = () => ed.molecule().elements.map((el, k) => (el === 'H' ? -1 : k)).filter((k) => k >= 0);
+  // a hydrogen of atom k that no other atom hides on the screen
+  const freeH = (k) => {
+    const m = ed.molecule(), hs = m.bonds.filter(([i, j]) => (i === k && m.elements[j] === 'H') || (j === k && m.elements[i] === 'H')).map(([i, j]) => (i === k ? j : i));
+    return hs.find((h) => m.elements.every((_, a) => a === h || Math.hypot(screen(a)[0] - screen(h)[0], screen(a)[1] - screen(h)[1]) > 16));
+  };
+
+  // ---- a new molecule
+  $('edit-new').click();
+  note('“New” opens the editor on methane, with its toolbar and skeleton', await shown() && ed.active && formula() === 'CH₄' && !$('edit-bar').hidden && d.querySelectorAll('#skeleton circle').length === 5 && d.querySelectorAll('#skeleton line').length === 4);
+  note('the lists and the dynamics stand still while editing', $('mol').closest('.field').inert && $('md-panel').inert && $('edit-open').inert && !s.md);
+  await report('editor-1-methane.png', c.snapshot());
+
+  let h = freeH(0);
+  click(...screen(h));
+  note(`a click on a hydrogen puts a carbon there: ${formula()}`, await shown() && formula() === 'C₂H₆' && !status().classList.contains('error'));
+
+  let [a, b] = heavy();
+  dragTo(...screen(a).slice(0, 2), ...screen(b).slice(0, 2));
+  await shown(); await sleep(60);
+  note(`dragging from one carbon to the other makes the bond double: ${formula()}, ${d.querySelectorAll('#skeleton line').length} lines drawn`,
+    formula() === 'C₂H₄' && ed.molecule().bonds.some((x) => x[2] === 2) && d.querySelectorAll('#skeleton line').length === 6);
+
+  // the bond itself: a click at its middle goes on to triple
+  [a, b] = heavy();
+  const mid = [0, 1].map((i) => (screen(a)[i] + screen(b)[i]) / 2);
+  click(...mid);
+  note(`a click on the bond makes it triple: ${formula()}`, await shown() && formula() === 'C₂H₂');
+  w.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+  note(`Ctrl+Z takes it back: ${formula()}`, await shown() && formula() === 'C₂H₄');
+
+  // another element
+  $('edit-element').querySelector('[data-v="O"]').click();
+  [a, b] = heavy();
+  click(...screen(b));
+  note(`with oxygen chosen, a click on a carbon changes it and its hydrogens: ${formula()}`, await shown() && formula() === 'H₂CO' && ed.molecule().elements.length === 4);
+
+  // erasing a hydrogen leaves a radical; undo restores
+  $('edit-tool').querySelector('[data-v="erase"]').click();
+  h = freeH(heavy().find((k) => ed.molecule().elements[k] === 'C'));
+  click(...screen(h));
+  note(`the eraser on a hydrogen leaves a radical with one unpaired electron: ${formula()}`, await shown() && ed.molecule().elements.length === 3 && s.unpaired === 1);
+  $('edit-undo').click();
+  note('undo by the button; the unpaired electron is gone again', await shown() && formula() === 'H₂CO' && s.unpaired === 0);
+
+  // moving an atom takes its hydrogens along, and is one step for undo
+  $('edit-tool').querySelector('[data-v="move"]').click();
+  {
+    const k = heavy().find((x) => ed.molecule().elements[x] === 'C'), before = ed.molecule(), [x, y] = screen(k);
+    dragTo(x, y, x - 40, y + 25);
+    await shown();
+    const after = ed.molecule(), o = before.elements.indexOf('O');
+    // against the oxygen: the molecule as a whole is centred again when the atom is dropped
+    const shift = (q) => [0, 1, 2].map((i) => after.positions[3 * q + i] - before.positions[3 * q + i] - (after.positions[3 * o + i] - before.positions[3 * o + i]));
+    const moved = (q) => Math.hypot(...shift(q)), centre = Math.hypot(...[0, 1, 2].map((i) => after.positions.filter((_, j) => j % 3 === i).reduce((x, y) => x + y, 0)));
+    note(`the Move tool carries the carbon and its hydrogens by ${(moved(k) * 0.529).toFixed(2)} A against the oxygen; the molecule stays centred`,
+      moved(k) > 0.2 && centre < 1e-9 && before.elements.every((el, q) => el !== 'H' || shift(q).every((v, i) => Math.abs(v - shift(k)[i]) < 1e-9)));
+    $('edit-undo').click();
+    await shown();
+    note('one undo puts it all back', ed.molecule().positions.every((v, i) => v === before.positions[i]));
+  }
+
+  // an empty-space click adds a separate atom; the view can still be turned
+  $('edit-tool').querySelector('[data-v="draw"]').click();
+  click(90, cv.clientHeight - 120);
+  note(`a click on empty space adds a separate atom with its hydrogens: ${formula()}`, await shown() && formula() === 'H₂CO + H₂O');
+  $('edit-undo').click();
+  await shown();
+  const yaw = s.camera.yaw;
+  dragTo(90, cv.clientHeight - 120, 190, cv.clientHeight - 120);
+  note('dragging empty space turns the view and changes nothing', s.camera.yaw !== yaw && formula() === 'H₂CO');
+  await report('editor-2-built.png', c.snapshot());
+
+  // the cloud is drawn when it changes, not whenever the cursor crosses an atom
+  {
+    let draws = 0;
+    const real = c.renderer.draw.bind(c.renderer);
+    c.renderer.draw = (...args) => { draws++; return real(...args); };
+    await sleep(100); draws = 0;
+    const [x, y] = screen(heavy()[0]);
+    for (let i = 0; i < 12; i++) { fire('pointermove', x + (i % 2 ? 60 : 0), y); await sleep(30); }
+    const lit = d.querySelectorAll('#skeleton .hot').length;
+    fire('pointermove', x, y); await sleep(60);
+    note(`moving the cursor on and off an atom highlights it (${d.querySelectorAll('#skeleton .hot').length} lit) without redrawing the cloud (${draws} cloud frames)`, draws === 0 && d.querySelectorAll('#skeleton .hot').length === 1 && lit === 0);
+    $('edit-cloud').click(); await sleep(80);
+    const px = new Uint8Array(4), gl = c.renderer.gl;
+    c.snapshot(); gl.readPixels(gl.drawingBufferWidth >> 1, gl.drawingBufferHeight >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    note(`with “Cloud” off only the skeleton is drawn (${draws} cloud frames, centre pixel ${px.slice(0, 3).join(' ')})`, draws === 0 && px[0] < 40 && px[2] < 50 && d.querySelectorAll('#skeleton circle').length === 4);
+    $('edit-cloud').click(); await sleep(80);
+    note('and with it on again the cloud is back', draws > 0);
+    c.renderer.draw = real;
+    fire('pointermove', 5, 5);
+  }
+
+  // ---- relaxation and keeping the result
+  const rough = s.result.energy;
+  $('edit-relax').click();
+  note('“Relax” starts and the button turns into “Stop”', ed.busy() && $('edit-relax').textContent === 'Stop');
+  await until(() => !ed.busy());
+  await shown();
+  const lib = (await (await fetch('/app/src/library.json')).json()).molecules.find((m) => m.key === 'h2co');
+  note(`relaxed: the energy went from ${rough.toFixed(5)} to ${s.result.energy.toFixed(6)} Eh, the library's formaldehyde has ${lib.energy.toFixed(6)}`, s.result.energy < rough && Math.abs(s.result.energy - lib.energy) < 2e-5 && /Relaxed/.test(status().textContent));
+  await report('editor-3-relaxed.png', c.snapshot());
+  $('edit-name').value = 'my formaldehyde';
+  $('edit-done').click();
+  await until(() => !ed.active && s.molecule?.key?.startsWith('my-') && !$('edit-open').inert);
+  const key = s.mol, option = [...$('mol').options].find((o) => o.value === key);
+  note(`“Done” leaves the editor with the molecule in the scene and in the list: “${option?.text}” under “${option?.parentElement.label}”`,
+    !ed.active && $('edit-bar').hidden && option?.text === 'my formaldehyde' && option.parentElement.label === 'My molecules' && $('mol').value === key && !$('md-panel').inert && [...$('mol2').options].some((o) => o.value === key));
+  note('its centre is at the origin and the cloud is drawn', Math.hypot(...[0, 1, 2].map((i) => s.molecule.positions.filter((_, q) => q % 3 === i).reduce((x, y) => x + y, 0))) < 1e-4 && d.querySelectorAll('#skeleton circle').length === 0);
+
+  // ---- after a reload it is still there and behaves as any molecule
+  w = await openApp(`mol=${key}&t=2&speed=0&seed=1`);
+  c = w.chemsim; s = c.state; d = w.document; cv = d.getElementById('view'); ed = c.edit;
+  note('after a reload the molecule is in the list and opens by its key', s.mol === key && c.composition() === 'H₂CO' && Math.abs(s.result.energy - lib.energy) < 2e-5);
+  c.md.run();
+  note('the dynamics runs on it', await until(() => s.md?.steps >= 30 || status().classList.contains('error'), 15000) && !status().classList.contains('error'));
+  await c.md.reset();
+
+  // ---- editing one's own molecule: XYZ in, a rename, and deleting
+  $('edit-open').click();
+  await shown();
+  note('“Edit” on one\'s own molecule offers its name and “Delete”', ed.active && $('edit-name').value === 'my formaldehyde' && !$('edit-delete').hidden && ed.molecule().bonds.some((x) => x[2] === 2));
+  $('edit-xyz').click();
+  note('the XYZ window shows the coordinates', $('xyz').open && /^4\nmy formaldehyde\n/.test($('xyz-text').value));
+  $('xyz-text').value = 'O 5.0 5.0 5.0\nH 5.96 5.0 5.0\nH 4.76 5.93 5.0\n';
+  $('xyz-apply').click();
+  note(`a pasted geometry replaces the molecule: ${c.composition()}`, await shown() && !$('xyz').open && c.composition() === 'H₂O' && Math.abs(ed.molecule().positions.filter((_, q) => q % 3 === 0).reduce((x, y) => x + y, 0)) < 1e-9);
+  $('xyz-text').value = 'no atoms';
+  $('edit-xyz').click(); $('xyz-text').value = 'Xx 0 0 0'; $('xyz-apply').click();
+  note(`text that is not a geometry is refused with a reason: “${$('xyz-problem').textContent}”`, $('xyz').open && /not among/.test($('xyz-problem').textContent));
+  $('xyz-close').click();
+  $('edit-name').value = 'water of mine';
+  $('edit-done').click();
+  await until(() => !ed.active && s.molecule.key === key && !$('edit-open').inert);
+  note('“Done” keeps it under the same key with the new name', s.mol === key && [...$('mol').options].filter((o) => o.parentElement.label === 'My molecules').map((o) => o.text).join() === 'water of mine' && JSON.parse(w.localStorage.getItem('chemsim.molecules')).length === 1);
+  $('edit-open').click();
+  await shown();
+  $('edit-cancel').click();
+  await until(() => !ed.active && s.molecule.key === key && !$('edit-open').inert);
+  note('“Cancel” leaves everything as it was', s.mol === key && c.composition() === 'H₂O' && d.querySelectorAll('#skeleton circle').length === 0);
+  $('edit-open').click();
+  await shown();
+  $('edit-delete').click();
+  const asked = $('edit-delete').textContent;
+  $('edit-delete').click();
+  await until(() => !ed.active && s.molecule.key === s.mol && !$('edit-open').inert);
+  note(`“Delete” asks once (“${asked}”), then removes the molecule from the lists and the browser`, asked === 'Really delete?' && ![...$('mol').options].some((o) => o.value === key) && !d.querySelector('#mol optgroup[label="My molecules"]') && JSON.parse(w.localStorage.getItem('chemsim.molecules')).length === 0);
+
+  // ---- a library molecule taken into the editor
+  w = await openApp('mol=c6h6&t=3');
+  c = w.chemsim; s = c.state; d = w.document; cv = d.getElementById('view'); ed = c.edit;
+  $('edit-open').click();
+  await shown();
+  $('edit-element').querySelector('[data-v="F"]').click();
+  h = ed.molecule().elements.indexOf('H');
+  click(...screen(h));
+  note(`benzene from the library, one hydrogen clicked with fluorine: ${c.composition()}`, await shown() && c.composition() === 'C₆H₅F');
+  await report('editor-4-fluorobenzene.png', c.snapshot());
+  $('edit-cancel').click();
+  await until(() => !ed.active && s.molecule.key === 'c6h6' && !$('edit-open').inert);
+  note('cancelled: benzene is back', c.composition() === 'C₆H₆');
+  w.localStorage.removeItem('chemsim.molecules');
+} catch (e) { out.ok = false; out.error = String(e.stack || e); }
+await report('done.json', JSON.stringify(out, null, 1));
+</script>

@@ -1,9 +1,10 @@
 import { createEngineClient } from './engine/client.js';
-import { FogRenderer, project, cameraBasis } from './render/fog.js';
+import { FogRenderer, project, cameraBasis, turnCamera } from './render/fog.js';
 import * as P from './plane.js';
 import { drawSlice } from './slice2d.js';
 import { drawEnergy } from './chart.js';
 import { buildScene, translated, rotated, pieces, composition } from './scene.js';
+import { createEditMode, savedMolecules } from './editmode.js';
 import { EXPERIMENTS } from './experiments.js';
 import { fixSigns, frontier, overlapMatrix, followOrbitals } from './orbitals.js';
 import { BOHR_ANGSTROM, HARTREE_EV, NUMBERS, COVALENT } from './units.js';
@@ -47,7 +48,7 @@ const state = {
 let shownCamera = state.camera; // the camera of the last drawn frame, wobble included
 
 let freshScene = false; // set when an experiment is chosen: its spin setting applies even if the molecules stay the same
-let renderer, library, dirty = true, drag = null, last = 0, slow = 0, lastMolKey = null;
+let renderer, library, dirty = true, overlay = false, drag = null, last = 0, slow = 0, lastMolKey = null;
 let scale = Math.min(window.devicePixelRatio || 1, 1.25);
 let resolveReady;
 const ready = new Promise((r) => (resolveReady = r));
@@ -71,28 +72,33 @@ canvas.addEventListener('webglcontextlost', (e) => {
 });
 const engine = createEngineClient();
 
+const withBohr = (m) => ({ ...m, bohr: Float64Array.from(m.xyz, (v) => v / BOHR_ANGSTROM) });
+// a molecule in both lists, under the heading of its group; one that is there already is renamed
+function listMolecule(m) {
+  for (const select of [$('mol'), ...(m.optimized !== false ? [$('mol2')] : [])]) {
+    const old = [...select.options].find((o) => o.value === m.key);
+    if (old) { old.text = m.name; continue; }
+    const name = m.group || 'Other';
+    let group = [...select.querySelectorAll('optgroup')].find((g) => g.label === name);
+    if (!group) { group = document.createElement('optgroup'); group.label = name; select.append(group); }
+    group.append(new Option(m.name, m.key));
+  }
+}
+
 async function loadLibrary() {
   const lib = await (await fetch(new URL('./library.json', import.meta.url))).json();
-  library = lib.molecules.map((m) => ({ ...m, bohr: Float64Array.from(m.xyz, (v) => v / BOHR_ANGSTROM) }));
-  // both lists, grouped under the headings of the library
-  const fill = (select, entries) => {
-    const groups = new Map();
-    for (const m of entries) {
-      const name = m.group || 'Other';
-      if (!groups.has(name)) { const g = document.createElement('optgroup'); g.label = name; groups.set(name, g); select.append(g); }
-      groups.get(name).append(new Option(m.name, m.key));
-    }
-  };
-  fill($('mol'), library);
+  // the library, then the molecules the user has made in the editor
+  library = [...lib.molecules, ...savedMolecules()].map(withBohr);
+  $('mol2').add(new Option('— none —', ''));
+  library.forEach(listMolecule);
   if (!library.some((m) => m.key === state.mol)) state.mol = library[0].key;
   $('mol').value = state.mol;
-  $('mol2').add(new Option('— none —', ''));
-  fill($('mol2'), library.filter((m) => m.optimized !== false));
   if (!library.some((m) => m.key === state.second)) state.second = '';
   $('mol2').value = state.second;
   // formulas as people write them, for the "now in the scene" line: taken from the library
   // names (their composition in the program's own order -> the text before the comma)
   for (const m of library) {
+    if (m.custom) continue;
     const key = composition({ elements: m.elements, positions: m.bohr });
     if (!key.includes(' ')) FORMULAS[key] ??= m.name.split(',')[0].replace(/[⁺⁻]/g, '');
   }
@@ -198,8 +204,9 @@ async function recomputeMoved(positions) {
 const fmt = (v, d) => v.toFixed(d).replace('-', '−');
 
 function buildInfo() {
-  const r = state.result, { homo, lumo } = frontier(r), md = state.md;
-  const rows = md ? [
+  const r = state.result, md = state.md;
+  const { homo, lumo } = r ? frontier(r) : { homo: -1, lumo: -1 };
+  const rows = !r ? [['Method', 'GFN2-xTB'], ['Total energy', '—']] : md ? [
     ['Time', `${md.time.toFixed(md.time < 100 ? 1 : 0)} fs`],
     ['Temperature', `${md.temperature.toFixed(0)} K`],
     ['E potential', `${fmt(md.epot, 5)} Eh`],
@@ -211,7 +218,7 @@ function buildInfo() {
     ['Total energy', `${fmt(r.energy, 5)} Eh`],
   ];
   if (homo >= 0 && lumo >= 0) rows.push(['HOMO–LUMO gap', `${fmt((r.eps[lumo] - r.eps[homo]) * HARTREE_EV, 2)} eV`]);
-  if (!md) {
+  if (!md && r) {
     rows.push(['Basis functions', String(r.nao)]);
     rows.push(['Calculation time', `${r.ms < 10 ? r.ms.toFixed(1) : r.ms.toFixed(0)} ms`]);
   }
@@ -399,11 +406,12 @@ function resize() {
 }
 
 function render(ts) {
-  const wob = state.wobble && !drag;
-  const camera = { ...state.camera, yaw: state.camera.yaw + (wob ? 0.22 * Math.sin(ts * 0.0008) : 0) };
-  renderer.draw(camera, { body: state.body });
+  const wob = state.wobble && !drag && !edit.active;
+  const camera = wob ? turnCamera(state.camera, 0.22 * Math.sin(ts * 0.0008), 0) : { ...state.camera };
+  if (state.result && !(edit.active && !edit.cloud)) renderer.draw(camera, { body: state.body }); else renderer.clear();
   placeLabels(camera);
   shownCamera = camera;
+  if (edit.active) edit.draw(camera);
   // the spring between the held nucleus and the cursor
   const line = $('grab-line'), hold = drag?.mode === 'hold' && drag.cursor;
   line.classList.toggle('on', !!hold);
@@ -420,13 +428,21 @@ function render(ts) {
 
 function frame(ts) {
   resize();
-  const wob = state.wobble && !drag;
-  if (state.result && (dirty || wob)) {
-    // if continuous rendering is too slow, lower the resolution
-    if (wob && last) { slow = ts - last > 45 ? slow + 1 : 0; if (slow > 6 && scale > 0.55) { scale *= 0.8; slow = 0; resize(); } }
-    last = wob ? ts : 0;
+  const wob = state.wobble && !drag && !edit.active;
+  // frames that follow one another: the wobble, the view being turned by hand, the editor at work
+  const live = wob || (dirty && (drag || edit.active));
+  if ((state.result || edit.active) && (dirty || wob)) {
+    // if continuous rendering is too slow (under some 28 frames a second), lower the resolution
+    if (live && last) { slow = ts - last > 36 ? slow + 1 : 0; if (slow > 6 && scale > 0.55) { scale *= 0.8; slow = 0; resize(); } }
+    last = live ? ts : 0;
     render(ts);
     dirty = false;
+    overlay = false;
+  } else {
+    last = 0;
+    // the editor's skeleton alone (the cursor moved over an atom): the cloud is not redrawn for that
+    if (overlay && edit.active) edit.draw(shownCamera);
+    overlay = false;
   }
   requestAnimationFrame(frame);
 }
@@ -602,9 +618,109 @@ window.addEventListener('keydown', (e) => {
 });
 new ResizeObserver(() => { if (state.plane && state.result) refreshPlane(); }).observe($('slice'));
 
+// ---- the molecule editor (editmode.js): what it needs from the page
+let shows = 0;
+// The molecule under the editor's hands, with the cloud the engine gives for it (or the one
+// that came with a relaxation frame). The camera stays where it is and only backs off when
+// the molecule outgrows the view. A structure the engine cannot solve is shown without a
+// cloud: the skeleton alone. Resolves with true when the cloud is up to date.
+async function showEdited(scene, { result, follow } = {}) {
+  const seq = ++shows, n = scene.electrons;
+  if ((state.unpaired - n) % 2 !== 0 || state.unpaired > n) state.unpaired = n % 2;
+  state.molecule = scene;
+  buildLabels();
+  dirty = true;
+  let res = result;
+  if (!res) {
+    res = await engine.compute({ numbers: scene.numbers, positions: scene.positions, charge: scene.charge, etemp: state.settings.etemp, unpaired: state.unpaired, forces: false });
+    if (!res || seq !== shows) return false; // a newer state is on its way
+    if (!res.ok) {
+      state.result = null;
+      $('levels').textContent = '';
+      buildInfo();
+      refreshMd();
+      setStatus(`${failure(res)}. The cloud is hidden until the structure can be calculated; the structure itself can still be edited.`, true);
+      dirty = true;
+      return false;
+    }
+  }
+  const prev = state.result, same = follow && prev && prev.nao === res.nao && prev.nmo === res.nmo;
+  if (same) state.selected = followOrbitals(prev, res, overlapMatrix(res.shells, scene.positions), state.selected);
+  else { fixSigns(res); state.selected = frontier(res).homo; }
+  state.result = res;
+  try {
+    const view = renderer.setScene(Float32Array.from(scene.positions), res);
+    if (view.distance > state.camera.distance) state.camera.distance = view.distance;
+  } catch (e) {
+    setStatus(e.message, true);
+    return false;
+  }
+  renderer.select(state.selected);
+  if (same) updateLevels(); else buildLevels();
+  buildInfo();
+  refreshMd();
+  dirty = true;
+  return true;
+}
+
+const EDIT_LOCKS = '.bar .field, #edit-open, #edit-new, #md-panel, #plane-panel';
+const edit = createEditMode({
+  state, canvas, engine, setStatus, turnView,
+  show: showEdited,
+  camera: () => shownCamera,
+  // everything, or (cloud: false) only the skeleton over a cloud that has not changed
+  redraw: ({ cloud = true } = {}) => { if (cloud) dirty = true; else overlay = true; },
+  unproject: (x, y, depth) => unproject(x, y, depth),
+  library: () => library,
+  name: (scene) => pretty(composition(scene)),
+  barHeight: (h) => { statusEl.style.top = h ? `${h + 20}px` : ''; },
+  // everything that works on a finished scene stands still while the molecule is being made
+  enter() {
+    mdStop();
+    leaveExperiment();
+    cancelPicking();
+    setPlane(null);
+    for (const el of document.querySelectorAll(EDIT_LOCKS)) el.inert = true;
+    for (const el of document.querySelectorAll('.two-only')) el.hidden = true;
+    $('stage').classList.add('editing');
+  },
+  // back to an ordinary scene: the molecule with this key, or the one that was there before
+  leave(key) {
+    $('stage').classList.remove('editing');
+    shows++;
+    if (key) { state.mol = key; state.second = ''; }
+    if (!library.some((m) => m.key === state.mol)) state.mol = library[0].key;
+    if (!library.some((m) => m.key === state.second)) state.second = '';
+    $('mol').value = state.mol; $('mol2').value = state.second;
+    params.delete('orb');
+    // the controls come back once the scene they work on is there
+    const unlock = () => { for (const el of document.querySelectorAll(EDIT_LOCKS)) el.inert = false; };
+    return recompute().then(unlock, unlock);
+  },
+  addMolecule(entry) {
+    const m = withBohr(entry), k = library.findIndex((x) => x.key === m.key);
+    if (k >= 0) library[k] = m; else library.push(m);
+    listMolecule(m);
+  },
+  removeMolecule(key) {
+    library = library.filter((m) => m.key !== key);
+    for (const select of [$('mol'), $('mol2')]) {
+      const o = [...select.options].find((x) => x.value === key), group = o?.parentElement;
+      o?.remove();
+      if (group?.tagName === 'OPTGROUP' && !group.children.length) group.remove();
+    }
+  },
+});
+
 // ---- mouse on the canvas: rotate the view, move the cutting plane, pick nuclei, and
 // take hold of a nucleus (a spring while the dynamics runs, the whole molecule otherwise)
 const local = (e) => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+
+// dragging by (dx, dy) pixels turns the view about the axes of the screen, without end
+function turnView(dx, dy) {
+  Object.assign(state.camera, turnCamera(state.camera, -dx * 0.008, -dy * 0.008));
+  dirty = true;
+}
 
 // the point under the cursor at distance `depth` in front of the camera
 function unproject(x, y, depth) {
@@ -651,6 +767,7 @@ function placeNuclei(positions) {
 }
 
 canvas.addEventListener('pointerdown', (e) => {
+  if (edit.active) return edit.pointerdown(e);
   const [x, y] = local(e);
   drag = { x: e.clientX, y: e.clientY, moved: 0, mode: 'view' };
   try { canvas.setPointerCapture(e.pointerId); } catch {} // synthetic events in the checks have no real pointer
@@ -667,6 +784,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (!state.picking) canvas.style.cursor = 'grabbing';
 });
 canvas.addEventListener('pointermove', (e) => {
+  if (edit.active) return edit.pointermove(e);
   const [x, y] = local(e);
   if (!drag) {
     // show that a nucleus can be taken hold of
@@ -692,8 +810,7 @@ canvas.addEventListener('pointermove', (e) => {
   }
   const action = !state.plane ? 'camera' : e.shiftKey ? 'shift' : e.altKey ? 'tilt' : state.mouse;
   if (action === 'camera') {
-    state.camera.yaw -= dx * 0.008;
-    state.camera.pitch = Math.max(-1.4, Math.min(1.4, state.camera.pitch + dy * 0.008));
+    turnView(dx, dy);
     dirty = true;
     return;
   }
@@ -710,6 +827,7 @@ canvas.addEventListener('pointermove', (e) => {
   }
 });
 const endDrag = (e) => {
+  if (edit.active) return edit.pointerup(e);
   if (drag?.mode === 'hold') { if (state.md) engine.md('set', { session: state.md.session, grab: null }); setStatus(sceneNote()); }
   if (drag && drag.moved < 4 && state.picking && e.type === 'pointerup') {
     const [x, y] = local(e), k = atomAt(x, y);
@@ -744,6 +862,7 @@ window.chemsim = {
   selectOrbital,
   frame: (f) => engine.onFrame(f), // feeds a dynamics frame by hand (checks of the error path)
   startExperiment,
+  edit,
   composition: () => pretty(composition(state.molecule)),
   md: { run: () => mdCommand('run'), pause: () => mdCommand('pause'), step: () => mdCommand('step'), reset: () => { mdStop(); return recompute(); } },
   // field values on the cut (size x size, bottom row first) with the geometry needed to
@@ -782,4 +901,5 @@ await loadLibrary();
 if (params.has('experiment')) await startExperiment(params.get('experiment')); // test hook
 else await recompute();
 if (params.get('md') === 'run') mdCommand('run'); // test hook
+if (params.has('edit')) edit.enter(params.get('edit') === 'new'); // test hook: ?edit=1 opens the editor on the scene, ?edit=new on a new molecule
 requestAnimationFrame(frame);

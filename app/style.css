@@ -95,3 +95,40 @@ aside { overflow-y: auto; }
 .bar { gap: 8px 14px; }
 
 .panel select { flex: 1; min-width: 0; height: 26px; }
+
+/* the molecule editor */
+#skeleton { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; display: none; }
+#skeleton line { stroke: rgba(255, 255, 255, .6); stroke-width: 1.6; stroke-linecap: round; }
+#skeleton line.hot { stroke: #ffe27a; stroke-width: 2.4; }
+#skeleton line.rubber { stroke: #ffe27a; stroke-dasharray: 4 3; }
+#skeleton circle { stroke: rgba(9, 10, 15, .85); stroke-width: 1; }
+#skeleton circle.hot { stroke: #ffe27a; stroke-width: 2.5; }
+#edit-bar { position: absolute; left: 12px; top: 10px; max-width: calc(100% - 24px); display: flex; flex-direction: column; gap: 6px; padding: 8px; font-size: 13px; background: rgba(20, 23, 32, .9); border: 1px solid var(--line); border-radius: 10px; }
+#edit-bar[hidden] { display: none; }
+#edit-bar .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+#edit-bar button, #edit-bar input { height: 28px; font-size: 13px; }
+#edit-bar button { padding: 0 9px; }
+#edit-bar #edit-undo, #edit-bar #edit-redo { font-size: 17px; }
+#edit-bar label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+#edit-bar input { padding: 0 6px; font: inherit; color: var(--text); background: #1b1f2b; border: 1px solid var(--line); border-radius: 6px; }
+#edit-charge { width: 52px; }
+#edit-name { width: 190px; }
+#edit-element button { min-width: 34px; }
+#edit-element button::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: var(--dot); }
+#edit-relax[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); border-color: #2f4a78; }
+#edit-done { background: var(--accent-bg); color: var(--accent); border-color: #2f4a78; }
+.stage.editing #view, .stage.editing #view:active { cursor: default; }
+.stage.editing #view.editing-erase { cursor: crosshair; }
+.stage.editing #status { max-width: min(70%, 640px); }
+#xyz { width: min(560px, 92vw); }
+#xyz p { margin: 6px 0; font-size: 13px; color: var(--muted); }
+#xyz-text { display: block; width: 100%; font: 12.5px/1.4 ui-monospace, monospace; color: var(--text); background: #0f1219; border: 1px solid var(--line); border-radius: 8px; padding: 8px; resize: vertical; }
+#xyz-problem { min-height: 18px; color: var(--danger); }
+#xyz .buttons { display: flex; justify-content: flex-end; gap: 8px; }
+[inert] { opacity: .45; }
+#edit-undo, #edit-redo { font-size: 17px; line-height: 1; padding: 0 8px; }
+#experiment { max-width: 155px; }
+#mol { max-width: 160px; }
+#mol2 { max-width: 125px; }
+.bar { gap: 8px 10px; }
+#edit-bar label.check { color: var(--text); }

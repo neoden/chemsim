@@ -18,6 +18,8 @@
   <label class="field" title="A second molecule in the scene. You can drag it to the first one by any nucleus.">Second
     <select id="mol2"></select>
   </label>
+  <button type="button" id="edit-open" title="Change what is in the scene now, atom by atom, and keep the result as a molecule of your own">Edit</button>
+  <button type="button" id="edit-new" title="Build a new molecule, starting from methane">New</button>
   <label class="check"><input type="checkbox" id="body" checked>Molecule body</label>
   <label class="check"><input type="checkbox" id="wobble" checked>Wobble</label>
   <button type="button" id="about-open" class="ghost">About the model</button>
@@ -27,6 +29,29 @@
     <canvas id="view" aria-label="The molecule's electron cloud. Drag with the mouse to rotate; the wheel zooms."></canvas>
     <div id="labels" aria-hidden="true"></div>
     <svg id="grab-line" aria-hidden="true"><line x1="0" y1="0" x2="0" y2="0"/><circle r="4"/></svg>
+    <svg id="skeleton" aria-hidden="true"></svg>
+    <div id="edit-bar" hidden>
+      <div class="row">
+        <div class="seg" id="edit-tool">
+          <button type="button" data-v="draw" title="Put the chosen element in place of an atom, draw bonds, add atoms">Draw</button>
+          <button type="button" data-v="erase" title="Remove atoms and bonds">Erase</button>
+          <button type="button" data-v="move" title="Move an atom together with its hydrogens">Move</button>
+        </div>
+        <div class="seg" id="edit-element" title="The element the Draw tool puts in"></div>
+        <label class="check" title="Draw the electron cloud while editing. Without it only the skeleton is drawn, which is lighter on the graphics card; the cloud returns when you leave the editor."><input type="checkbox" id="edit-cloud" checked>Cloud</label>
+        <button type="button" id="edit-undo" title="Undo (Ctrl+Z)">↶</button>
+        <button type="button" id="edit-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+      </div>
+      <div class="row">
+        <label title="The charge of the whole molecule. NH₄⁺ is NH₃ with one more hydrogen and charge +1.">Charge <input type="number" id="edit-charge" min="-4" max="4" step="1" value="0"></label>
+        <button type="button" id="edit-relax" title="Let the engine move the nuclei to the nearest minimum of the energy">Relax</button>
+        <button type="button" id="edit-xyz" title="The coordinates as text: copy them out, or paste a geometry in">XYZ…</button>
+        <input type="text" id="edit-name" maxlength="40" placeholder="Name (the formula if empty)" aria-label="Name of the molecule">
+        <button type="button" id="edit-done" title="Relax the molecule and keep it under “My molecules”">Done</button>
+        <button type="button" id="edit-delete" title="Remove this molecule from “My molecules”" hidden>Delete</button>
+        <button type="button" id="edit-cancel" title="Leave the editor and drop the changes">Cancel</button>
+      </div>
+    </div>
     <p id="status" role="status"></p>
     <figure id="slice-box" hidden>
       <canvas id="slice" aria-label="The same cut as a flat plot: a colour map of the field with contour lines"></canvas>
@@ -121,6 +146,17 @@
   <h3>Licenses</h3>
   <p>The GFN2-xTB calculation is done by the <a href="https://github.com/atomsforhumanity/axtb" target="_blank" rel="noopener">axtb</a> 0.1.2 library, built into WebAssembly. It is distributed under the GNU LGPL, version 3 or later. <a href="licenses/index.html">License texts and the contents of the module</a>; <a href="source/index.html">the module's source code and how to rebuild it</a> with your own version of the library. The code of chemsim itself is under the <a href="licenses/chemsim-LICENSE.txt">MIT license</a>.</p>
   <form method="dialog"><button>Close</button></form>
+</dialog>
+<dialog id="xyz">
+  <h2>Coordinates (XYZ)</h2>
+  <p>One atom per line: element, then x, y, z in angstrom. Copy the text out, or put another geometry in and replace the molecule with it.</p>
+  <textarea id="xyz-text" rows="12" spellcheck="false" aria-label="Coordinates in XYZ format"></textarea>
+  <p id="xyz-problem" role="status"></p>
+  <div class="buttons">
+    <button type="button" id="xyz-apply">Replace the molecule</button>
+    <button type="button" id="xyz-copy">Copy</button>
+    <button type="button" id="xyz-close">Close</button>
+  </div>
 </dialog>
 <script type="module" src="src/main.js"></script>
 </body>
