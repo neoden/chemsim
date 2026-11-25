@@ -8,7 +8,9 @@ Elements: the first 36, H to Kr. GFN2-xTB describes them with s, p and d functio
 
 Unpaired electrons: the engine is given their number (two for O₂, one for radicals). The scene sets it, and it can be changed under "Settings" in the dynamics panel. Spin only decides how electrons are distributed over the orbitals; GFN2-xTB knows no energy difference between "up" and "down".
 
-Your own molecules: "Edit" opens what is in the scene in the molecule editor, "New" starts from methane. A molecule is grown by its hydrogens: every atom arrives with its hydrogens, and a click on a hydrogen puts the chosen element in its place. Dragging from atom to atom draws a bond, a click on a bond makes it double or triple, the eraser removes atoms, bonds or single hydrogens (which leaves a radical). "Relax" lets the engine take the nuclei to the nearest energy minimum; "Done" relaxes and keeps the molecule under "My molecules" in the browser (`localStorage`), from where it works as any molecule of the library. "XYZ…" shows the coordinates as text and takes a pasted geometry. The editor offers H, C, N, O, F, P, S and Cl and takes up to 40 atoms; a geometry with other elements can be pasted as XYZ.
+Your own molecules: "Edit" opens what is in the scene in the molecule editor, "New" starts from methane. A molecule is grown by its hydrogens: every atom arrives with its hydrogens, and a click on a hydrogen puts the chosen element in its place. Dragging from atom to atom draws a bond, a click on a bond makes it double or triple, the eraser removes atoms, bonds or single hydrogens (which leaves a radical). "Relax" lets the engine take the nuclei to the nearest energy minimum; "Done" relaxes and keeps the molecule under "My molecules" in the browser (`localStorage`), from where it works as any molecule of the library. "XYZ…" shows the coordinates as text and takes a pasted geometry. The editor offers H, C, N, O, F, P, S and Cl and takes up to 100 atoms; a geometry with other elements can be pasted as XYZ.
+
+Molecules from elsewhere: "Find…" takes a compound from [PubChem](https://pubchem.ncbi.nlm.nih.gov/) by its name or number (CID), or builds one from a formula in SMILES; either way it opens in the editor, where "Done" relaxes and keeps it. From PubChem comes the computed 3D structure with its bonds; for compounds that have none there (salts, metal compounds) the geometry is built from the SMILES PubChem gives. "SMILES…" in the editor shows the molecule being edited as SMILES and replaces it the same way. Typing Enter builds what reads as SMILES and looks up anything else. A search sends the typed text to PubChem and is the only request the page ever makes outside its own folder; nothing is sent until the button is pressed. SMILES is read in full except for what the program has no use for: the handedness marks (`@`, `/`, `\`) and isotopes are dropped, so of two mirror forms one comes out, whichever. It is written with whole bond orders (benzene as `C1=CC=CC=C1`); the charge of an ion is put on the atom whose bonds point to it.
 
 ## Running
 
@@ -36,7 +38,9 @@ The contents of `dist/` are the finished site: plain static files with relative 
   - `src/experiments.js` — the list of ready-made experiments: molecules, settings, a hint and the expected products.
   - `src/scene.js` — a scene of one or two molecules, moving and rotating a fragment.
   - `src/editor.js` — the molecule editor's model: atoms, bonds and the operations on them (hydrogens counted by difference, new atoms placed by repulsion on a sphere). No DOM.
-  - `src/editmode.js` — the editor on the page: toolbar, skeleton over the cloud, mouse, undo, the user's molecules in `localStorage`.
+  - `src/editmode.js` — the editor on the page: toolbar, skeleton over the cloud, mouse, undo, the user's molecules in `localStorage`, the "Find…" window.
+  - `src/smiles.js` — SMILES: reading it into a bond graph (aromatic rings get their double bonds), writing a molecule back. The geometry for a graph is built by `fromGraph` in `editor.js`. No DOM.
+  - `src/pubchem.js` — looking a compound up on PubChem (PUG REST) and taking its 3D record as a molecule.
   - `src/relax.js` — geometry optimization (BFGS), shared by the Worker and the library build.
   - `src/chart.js` — the plot of energy over time.
   - `src/plane.js`, `src/slice2d.js` — the geometry of the cutting plane and the flat 2D plot of the cut.
@@ -66,6 +70,7 @@ The module is built for `wasm32-wasip1` rather than `wasm32-unknown-unknown`: `a
 node tests/engines.test.mjs                 # the engine: the basis with its d functions, the character of xTB orbitals
 node tests/md.test.mjs                      # dynamics: energy conservation, water for 10 ps at 300 K, BH3NH3 dissociation, the wall, the hand that leads a molecule
 node tests/editor.test.mjs                  # the editor's model: building by hydrogens, bonds, erasing, closing a ring; what it builds relaxes to the library's energies
+node tests/smiles.test.mjs                  # SMILES in and out, the geometries built from it (rings, cages) and their relaxation, PubChem records and answers (played back, nothing is asked)
 node tests/adduct.test.mjs                  # BH3 + NH3, brought together "by mouse", form the adduct
 node tests/experiments-screen.mjs           # experiment screening: some fifty pairs, brought together "by mouse" or heated, and what they yield
 node tests/md-dissociation.mjs              # at what temperature and after how long B–N breaks (8 runs per temperature)
@@ -74,7 +79,8 @@ node tests/run-browser.mjs render-check.html   # rendering in headless Chromium:
 node tests/run-browser.mjs plane-check.html    # cutting plane: accuracy of the field on the cut, snapping, mouse control, screenshots
 node tests/run-browser.mjs md-check.html       # dynamics in the browser: start, pause, step, reset, steps per second, orbitals without flicker
 node tests/run-browser.mjs hands-check.html    # a second molecule, moving and rotating, grabbing a nucleus with a spring, the third color, the energy plot
-node tests/run-browser.mjs editor-check.html   # the molecule editor by mouse: build, undo, relax, keep under "My molecules", reload, delete
+node tests/run-browser.mjs editor-check.html   # the molecule editor by mouse: build, undo, relax, keep under "My molecules", reload, delete; a molecule from SMILES and one from PubChem (answers played back)
+node tests/run-browser.mjs large-check.html    # molecules near the editor's limit of 100 atoms: built from SMILES, drawn, relaxed, run in dynamics, and what each step costs on this machine
 node tests/run-browser.mjs site-check.html     # the built dist/ site: works from a subfolder, requests nothing external, licenses and sources in place
 node tests/run-browser.mjs library-check.html  # every library molecule opens and runs in dynamics
 node tests/run-browser.mjs experiments-check.html  # every experiment in the list loads; those that run hands-free give the promised products

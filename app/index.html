@@ -20,6 +20,7 @@
   </label>
   <button type="button" id="edit-open" title="Change what is in the scene now, atom by atom, and keep the result as a molecule of your own">Edit</button>
   <button type="button" id="edit-new" title="Build a new molecule, starting from methane">New</button>
+  <button type="button" id="find-open" title="Take a molecule from PubChem by its name, or build one from a formula in SMILES">Find…</button>
   <label class="check"><input type="checkbox" id="body" checked>Molecule body</label>
   <label class="check"><input type="checkbox" id="wobble" checked>Wobble</label>
   <button type="button" id="about-open" class="ghost">About the model</button>
@@ -46,6 +47,7 @@
         <label title="The charge of the whole molecule. NH₄⁺ is NH₃ with one more hydrogen and charge +1.">Charge <input type="number" id="edit-charge" min="-4" max="4" step="1" value="0"></label>
         <button type="button" id="edit-relax" title="Let the engine move the nuclei to the nearest minimum of the energy">Relax</button>
         <button type="button" id="edit-xyz" title="The coordinates as text: copy them out, or paste a geometry in">XYZ…</button>
+        <button type="button" id="edit-smiles" title="The molecule as SMILES: copy it out, or replace the molecule with one built from SMILES or found on PubChem">SMILES…</button>
         <input type="text" id="edit-name" maxlength="40" placeholder="Name (the formula if empty)" aria-label="Name of the molecule">
         <button type="button" id="edit-done" title="Relax the molecule and keep it under “My molecules”">Done</button>
         <button type="button" id="edit-delete" title="Remove this molecule from “My molecules”" hidden>Delete</button>
@@ -156,6 +158,18 @@
     <button type="button" id="xyz-apply">Replace the molecule</button>
     <button type="button" id="xyz-copy">Copy</button>
     <button type="button" id="xyz-close">Close</button>
+  </div>
+</dialog>
+<dialog id="find">
+  <h2>Find or build a molecule</h2>
+  <p>Type the name of a compound to take it from <a href="https://pubchem.ncbi.nlm.nih.gov/" target="_blank" rel="noopener">PubChem</a>, or its formula in SMILES to build it right here. A search sends what you typed to PubChem, a database of the U.S. National Library of Medicine; nothing else leaves this page.</p>
+  <input type="text" id="find-text" placeholder="aspirin, or CC(=O)Oc1ccccc1C(=O)O" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Name of a compound, its PubChem number, or SMILES">
+  <p id="find-problem" role="status"></p>
+  <div class="buttons">
+    <button type="button" id="find-pubchem" title="Look the compound up by name or by its PubChem number (CID)">Find on PubChem</button>
+    <button type="button" id="find-build" title="Build the molecule from the SMILES in the field">Build from SMILES</button>
+    <button type="button" id="find-copy">Copy</button>
+    <button type="button" id="find-close">Close</button>
   </div>
 </dialog>
 <script type="module" src="src/main.js"></script>

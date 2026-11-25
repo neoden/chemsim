@@ -1,0 +1,60 @@
+<!doctype html><meta charset="utf-8"><title>large molecules check</title>
+<style>body{margin:0;background:#222}iframe{border:0;display:block}</style>
+<iframe id="app" width="1400" height="900"></iframe>
+<script type="module">
+// Molecules near the editor's limit of 100 atoms, in the browser: built from SMILES, drawn,
+// relaxed by the engine in its Worker, kept, and run in dynamics. Reports what each step costs
+// on this machine; fails only if a step does not work at all.
+const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
+const frame = document.getElementById('app');
+const out = { ok: true, checks: [], rows: [] };
+const note = (text, good) => { out.checks.push(`${good ? 'ok   ' : 'WRONG'} ${text}`); if (!good) out.ok = false; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (cond, ms) => { const t = performance.now(); while (!cond()) { if (performance.now() - t > ms) return false; await sleep(20); } return true; };
+const CASES = [
+  ['ibuprofen', 'CC(C)Cc1ccc(cc1)C(C)C(=O)O'],
+  ['testosterone', 'CC12CCC3C(C1CCC2O)CCC4=CC(=O)CCC34C'],
+  ['cholesterol', 'CC(C)CCCC(C)C1CCC2C1(CCC3C2CC=C4C3(CCC(C4)O)C)C'],
+  ['C32H66', 'C'.repeat(32)],
+];
+try {
+  const done = new Promise((r) => frame.addEventListener('load', r, { once: true }));
+  frame.src = '/app/index.html?wobble=0&mol=h2o&speed=0&seed=1';
+  await done;
+  const w = frame.contentWindow;
+  while (!w.chemsim) await sleep(20);
+  await w.chemsim.ready;
+  w.localStorage.removeItem('chemsim.molecules');
+  const c = w.chemsim, s = c.state, d = w.document, ed = c.edit, $ = (id) => d.getElementById(id);
+  out.gpu = c.renderer.rendererName();
+  for (const [name, smiles] of CASES) {
+    let t = performance.now();
+    $('find-open').click();
+    $('find-text').value = smiles;
+    $('find-build').click();
+    const shown = await until(() => ed.active && s.result && s.molecule.elements.length === ed.molecule().elements.length && c.renderer.scene.nat === s.molecule.elements.length, 60000);
+    const first = performance.now() - t, atoms = ed.molecule().elements.length;
+    note(`${name}, ${atoms} atoms: built from SMILES and shown with its cloud`, shown && !$('status').classList.contains('error'));
+    const b = c.benchmark(12);
+    await report(`large-${name}.png`, c.snapshot());
+    t = performance.now();
+    $('edit-done').click();
+    const kept = await until(() => !ed.active && s.molecule.key === s.mol && !$('edit-open').inert, 300000);
+    const relax = performance.now() - t;
+    note(`${name}: “Done” relaxes it and keeps it (${/Relaxed|relaxed/.test($('status').textContent) ? '' : 'status: ' + $('status').textContent.slice(0, 80)})`, kept && s.molecule.elements.length === atoms && !$('status').classList.contains('error'));
+    const after = c.benchmark(12);
+    c.md.run();
+    const t0 = performance.now();
+    await until(() => (s.md?.steps ?? 0) >= 20 || $('status').classList.contains('error'), 60000);
+    const steps = s.md?.steps ?? 0;
+    await sleep(3000);
+    const rate = ((s.md?.steps ?? 0) - steps) / 3;
+    c.md.pause();
+    note(`${name}: the dynamics runs (${rate.toFixed(0)} steps a second)`, rate > 1 && !$('status').classList.contains('error'));
+    await c.md.reset();
+    out.rows.push(`${name.padEnd(13)} ${String(atoms).padStart(3)} atoms | built and shown in ${first.toFixed(0).padStart(5)} ms | frame: from the grid ${after.ms.toFixed(1).padStart(5)} ms, exact ${after.exactMs.toFixed(1).padStart(6)} ms (in the editor ${b.ms.toFixed(1)} / ${b.exactMs.toFixed(1)}) | filling the orbital grid ${after.orbGridMs.toFixed(1).padStart(5)} ms, the body grid ${after.gridMs.toFixed(1).padStart(5)} ms (${after.gridSize}) | relax and keep ${(relax / 1000).toFixed(1).padStart(5)} s | dynamics ${rate.toFixed(0).padStart(4)} steps/s | ${after.width}x${after.height}`);
+  }
+  w.localStorage.removeItem('chemsim.molecules');
+} catch (e) { out.ok = false; out.error = String(e.stack || e); }
+await report('done.json', JSON.stringify(out, null, 1));
+</script>

@@ -6,6 +6,8 @@ import * as E from './editor.js';
 import { project, cameraBasis } from './render/fog.js';
 import { looseScene } from './scene.js';
 import { BOHR_ANGSTROM } from './units.js';
+import { fromSMILES, toSMILES, isSMILES } from './smiles.js';
+import { findCompound } from './pubchem.js';
 
 const PALETTE = ['H', 'C', 'N', 'O', 'F', 'P', 'S', 'Cl'];
 const COLOURS = { H: '#e9ebf0', C: '#8f96a3', N: '#5f84ff', O: '#ff5f52', F: '#86e36f', P: '#ff9d42', S: '#f2da46', Cl: '#4fd98a', B: '#f0b6a0', Si: '#d9c29a', Br: '#c0603c' };
@@ -39,6 +41,8 @@ export function createEditMode(app) {
   let mol = null, history = [], future = [], tool = 'draw', element = 'C';
   let origin = null; // the key of the user's molecule being edited, or null for a new one
   let drag = null, hover = { atom: -1, bond: -1 }, busy = null, relaxed = false, sessions = 0, armed = false;
+  let arrived = false; // the editor was opened on a molecule from elsewhere: it is new even if untouched
+  let news = null; // what to say once the next molecule is shown, instead of the tool's hint
 
   const at = (k) => [mol.positions[3 * k], mol.positions[3 * k + 1], mol.positions[3 * k + 2]];
   const sceneNow = () => looseScene(mol.elements, mol.positions, mol.charge);
@@ -51,7 +55,7 @@ export function createEditMode(app) {
     $('edit-redo').disabled = !future.length || !!busy;
     $('edit-relax').textContent = busy ? 'Stop' : 'Relax';
     $('edit-relax').setAttribute('aria-pressed', String(!!busy));
-    for (const id of ['edit-done', 'edit-xyz', 'edit-charge']) $(id).disabled = !!busy;
+    for (const id of ['edit-done', 'edit-xyz', 'edit-smiles', 'edit-charge']) $(id).disabled = !!busy;
     $('edit-charge').value = mol.charge;
     $('edit-delete').hidden = !origin;
     $('edit-delete').textContent = armed ? 'Really delete?' : 'Delete';
@@ -62,7 +66,9 @@ export function createEditMode(app) {
   async function show(follow = false) {
     refreshBar();
     app.redraw();
-    if (await app.show(sceneNow(), { follow })) hint();
+    const say = news;
+    news = null;
+    if (await app.show(sceneNow(), { follow })) { if (say) app.setStatus(say); else hint(); }
   }
 
   // one editing step: `change` makes the new molecule from the current one
@@ -131,17 +137,19 @@ export function createEditMode(app) {
     job.resolve(!f.error);
   };
 
-  // ---- into the editor and out of it
-  function enter(fresh) {
+  // ---- into the editor and out of it: with what is in the scene, with methane (fresh), or
+  // with a molecule that came from elsewhere (given: { molecule, name })
+  function enter(fresh, given = null) {
     if (edit.active) return;
     const scene = state.molecule;
     if (!fresh && scene.elements.length > E.MAX_ATOMS) { app.setStatus(`The editor takes molecules of up to ${E.MAX_ATOMS} atoms.`, true); return; }
     const own = !fresh && scene.nFragments === 1 ? app.library().find((m) => m.key === scene.key && m.custom) : null;
     origin = own?.key ?? null;
-    mol = fresh ? E.placeAtom(E.emptyMolecule(), 'C', [0, 0, 0]) : E.withBonds(scene.elements, scene.positions, scene.charge);
+    mol = given ? E.centred(given.molecule) : fresh ? E.placeAtom(E.emptyMolecule(), 'C', [0, 0, 0]) : E.withBonds(scene.elements, scene.positions, scene.charge);
+    arrived = !!given;
     history = []; future = []; tool = 'draw'; element = 'C'; relaxed = false; armed = false; drag = null; busy = null;
     hover = { atom: -1, bond: -1 };
-    $('edit-name').value = own?.name ?? '';
+    $('edit-name').value = given?.name ?? own?.name ?? '';
     $('edit-cloud').checked = edit.cloud;
     edit.active = true;
     app.enter();
@@ -162,7 +170,7 @@ export function createEditMode(app) {
   async function done() {
     if (busy) return;
     const renamed = origin && $('edit-name').value.trim() !== app.library().find((m) => m.key === origin).name;
-    if (!history.length && !renamed && state.result) return leave(null); // nothing was changed
+    if (!history.length && !renamed && !arrived && state.result) return leave(null); // nothing was changed
     if (!relaxed && !(await relax())) return;
     if (!state.result) { app.setStatus('This structure cannot be calculated, so there is nothing to save yet.', true); return; }
     mol = E.centred(mol);
@@ -360,9 +368,67 @@ export function createEditMode(app) {
     } catch (e) { problem.textContent = e.message; }
   });
 
+  // ---- a molecule by its name (PubChem) or from SMILES. One window serves the page, where
+  // the molecule opens in the editor, and the editor, where it replaces the one being edited
+  // (and where the window opens on the SMILES of that one).
+  const finder = $('find'), query = $('find-text'), report = $('find-problem');
+  const FIND_BUTTONS = ['find-pubchem', 'find-build'];
+  let asking = null;
+  const tell = (message, fine = false) => { report.textContent = message; report.classList.toggle('fine', fine); };
+  function openFinder() {
+    if (edit.active) {
+      if (busy) return;
+      try { query.value = toSMILES(mol); tell(''); } catch (e) { query.value = ''; tell(e.message, true); }
+    } else tell('');
+    finder.showModal();
+    query.select();
+  }
+  // takes the molecule in and closes the window
+  function arrive(molecule, name, message) {
+    finder.close();
+    news = `${message} “Done” relaxes it with the engine and keeps it under “My molecules”.`;
+    if (!edit.active) { enter(true, { molecule, name: name.slice(0, 40) }); return; }
+    if (!$('edit-name').value.trim()) $('edit-name').value = name.slice(0, 40);
+    if (!apply(() => molecule)) news = null;
+  }
+  function build() {
+    const text = query.value.trim();
+    try { arrive(fromSMILES(text), '', 'Built from SMILES: a rough geometry.'); } catch (e) { tell(e.message); }
+  }
+  async function search() {
+    if (asking) return;
+    asking = new AbortController();
+    for (const id of FIND_BUTTONS) $(id).disabled = true;
+    tell('Asking PubChem…', true);
+    try {
+      const found = await findCompound(query.value, { signal: asking.signal });
+      if (found.molecule) arrive(found.molecule, found.name, `${found.name} from PubChem (CID ${found.cid}), with the 3D structure kept there.`);
+      else if (found.smiles) arrive(fromSMILES(found.smiles), found.name, `${found.name} from PubChem (CID ${found.cid}). PubChem has no 3D structure for it, so a rough one was built from its SMILES, ${found.smiles}.`);
+      else tell(`PubChem has ${found.name}, but no structure for it.`);
+    } catch (e) { if (e.name !== 'AbortError') tell(e.message); }
+    asking = null;
+    for (const id of FIND_BUTTONS) $(id).disabled = false;
+  }
+  $('find-open').addEventListener('click', openFinder);
+  $('edit-smiles').addEventListener('click', openFinder);
+  $('find-pubchem').addEventListener('click', search);
+  $('find-build').addEventListener('click', build);
+  $('find-close').addEventListener('click', () => finder.close());
+  finder.addEventListener('close', () => asking?.abort());
+  $('find-copy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(query.value); tell('Copied.', true); } catch { query.select(); tell('Select the text and copy it by hand.', true); }
+  });
+  // Enter: what reads as SMILES is built, anything else is a name to look up
+  query.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (!query.value.trim()) return;
+    if (isSMILES(query.value)) build(); else search();
+  });
+
   // for the checks
   Object.assign(edit, {
-    enter, leave, done, relax, undo, redo,
+    enter, leave, done, relax, undo, redo, search, build,
     molecule: () => mol,
     tool: (t, el) => { tool = t; if (el) element = el; refreshBar(); },
     busy: () => !!busy,

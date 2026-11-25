@@ -120,11 +120,13 @@ aside { overflow-y: auto; }
 .stage.editing #view, .stage.editing #view:active { cursor: default; }
 .stage.editing #view.editing-erase { cursor: crosshair; }
 .stage.editing #status { max-width: min(70%, 640px); }
-#xyz { width: min(560px, 92vw); }
-#xyz p { margin: 6px 0; font-size: 13px; color: var(--muted); }
+#xyz, #find { width: min(560px, 92vw); }
+#xyz p, #find p { margin: 6px 0; font-size: 13px; color: var(--muted); }
 #xyz-text { display: block; width: 100%; font: 12.5px/1.4 ui-monospace, monospace; color: var(--text); background: #0f1219; border: 1px solid var(--line); border-radius: 8px; padding: 8px; resize: vertical; }
-#xyz-problem { min-height: 18px; color: var(--danger); }
-#xyz .buttons { display: flex; justify-content: flex-end; gap: 8px; }
+#find-text { display: block; width: 100%; box-sizing: border-box; font: 13px/1.4 ui-monospace, monospace; color: var(--text); background: #0f1219; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+#xyz-problem, #find #find-problem { min-height: 18px; color: var(--danger); }
+#find #find-problem.fine { color: var(--muted); }
+#xyz .buttons, #find .buttons { display: flex; justify-content: flex-end; gap: 8px; }
 [inert] { opacity: .45; }
 #edit-undo, #edit-redo { font-size: 17px; line-height: 1; padding: 0 8px; }
 #experiment { max-width: 155px; }

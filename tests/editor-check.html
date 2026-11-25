@@ -197,6 +197,66 @@ try {
   $('edit-cancel').click();
   await until(() => !ed.active && s.molecule.key === 'c6h6' && !$('edit-open').inert);
   note('cancelled: benzene is back', c.composition() === 'C₆H₆');
+
+  // ---- a molecule from SMILES, and one from PubChem (whose answers are played back here:
+  // the check asks nothing of the outside world)
+  const enter = () => $('find-text').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  $('find-open').click();
+  note('“Find…” opens its window', $('find').open && !ed.active);
+  $('find-text').value = 'C(C';
+  $('find-build').click();
+  note(`text that is not SMILES is refused with a reason: “${$('find-problem').textContent}”`, $('find').open && !ed.active && /not closed/.test($('find-problem').textContent));
+  $('find-text').value = 'CCO';
+  enter();
+  note(`SMILES and Enter: the molecule is built and opens in the editor, ${c.composition()}`, await shown() && ed.active && !$('find').open && c.composition() === 'C₂H₅OH' && ed.molecule().bonds.length === 8);
+  note(`the status says where it came from: “${status().textContent.slice(0, 40)}…”`, /Built from SMILES/.test(status().textContent) && !status().classList.contains('error'));
+  $('edit-smiles').click();
+  note(`“SMILES…” in the editor shows the molecule as SMILES: ${$('find-text').value}`, $('find').open && $('find-text').value === 'CCO');
+  $('find-text').value = 'Oc1ccccc1';
+  $('find-build').click();
+  note(`another SMILES replaces the molecule: ${c.composition()}`, await shown() && !$('find').open && c.composition() === 'C₆H₆O' && ed.molecule().bonds.filter((x) => x[2] === 2).length === 3);
+  await report('editor-5-phenol.png', c.snapshot());
+  ed.undo();
+  note('and that can be undone', await shown() && c.composition() === 'C₂H₅OH');
+  $('edit-done').click();
+  await until(() => !ed.active && s.molecule.key === s.mol && !$('edit-open').inert, 60000);
+  const ethanol = (await (await fetch('/app/src/library.json')).json()).molecules.find((m) => m.key === 'c2h5oh');
+  note(`“Done” relaxes it to the library's ethanol (${(s.result.energy - ethanol.energy).toExponential(1)} Eh) and keeps it under “My molecules” by its formula`,
+    Math.abs(s.result.energy - ethanol.energy) < 2e-5 && [...$('mol').options].some((o) => o.parentElement.label === 'My molecules' && o.value === s.mol && o.text === 'C₂H₅OH'));
+
+  const record = await (await fetch('/tests/cases/pubchem-ethanol-3d.json')).json(), requests = [];
+  const real = w.fetch;
+  w.fetch = async (url, options) => {
+    if (!String(url).startsWith('https://pubchem.ncbi.nlm.nih.gov/')) return real(url, options);
+    requests.push(String(url));
+    const answer = (status, body) => new w.Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+    if (/name\/ethyl%20alcohol\/property/.test(url)) return answer(200, { PropertyTable: { Properties: [{ CID: 702, SMILES: 'CCO', Title: 'Ethanol' }] } });
+    if (/cid\/702\/record/.test(url)) return answer(200, record);
+    if (/name\/table%20salt\/property/.test(url)) return answer(200, { PropertyTable: { Properties: [{ CID: 5234, SMILES: '[Na+].[Cl-]', Title: 'Sodium Chloride' }] } });
+    return answer(404, { Fault: { Code: 'PUGREST.NotFound' } });
+  };
+  $('find-open').click();
+  $('find-text').value = 'qwertyzzz';
+  enter();
+  await until(() => /knows no compound/.test($('find-problem').textContent));
+  note(`a name PubChem does not know: “${$('find-problem').textContent}”`, $('find').open && !ed.active && /qwertyzzz/.test($('find-problem').textContent) && !$('find-pubchem').disabled);
+  $('find-text').value = 'ethyl alcohol';
+  enter();
+  await until(() => ed.active);
+  note(`a name it knows: ${$('edit-name').value}, ${c.composition()}, with PubChem's 3D structure, after ${requests.length - 1} requests for it`,
+    await shown() && !$('find').open && $('edit-name').value === 'Ethanol' && c.composition() === 'C₂H₅OH' && ed.molecule().bonds.length === 8 && requests.length === 3 && /CID 702/.test(status().textContent));
+  $('edit-done').click();
+  await until(() => !ed.active && s.molecule.key === s.mol && !$('edit-open').inert, 60000);
+  note(`“Done” keeps it as “${[...$('mol').options].find((o) => o.value === s.mol).text}”, relaxed (${(s.result.energy - ethanol.energy).toExponential(1)} Eh from the library's conformer)`,
+    [...$('mol').options].find((o) => o.value === s.mol).text === 'Ethanol' && s.result.energy - ethanol.energy < 0 && s.result.energy - ethanol.energy > -4e-3);
+  $('find-open').click();
+  $('find-text').value = 'table salt';
+  $('find-pubchem').click();
+  await until(() => ed.active);
+  note(`a salt, for which PubChem has no 3D structure, is built from its SMILES: ${c.composition()}`, await shown() && c.composition() === 'NaCl' && $('edit-name').value === 'Sodium Chloride' && /no 3D structure/.test(status().textContent));
+  $('edit-cancel').click();
+  await until(() => !ed.active && !$('edit-open').inert);
+  w.fetch = real;
   w.localStorage.removeItem('chemsim.molecules');
 } catch (e) { out.ok = false; out.error = String(e.stack || e); }
 await report('done.json', JSON.stringify(out, null, 1));

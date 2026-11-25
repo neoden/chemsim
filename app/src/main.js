@@ -677,7 +677,7 @@ async function showEdited(scene, { result, follow } = {}) {
   return true;
 }
 
-const EDIT_LOCKS = '.bar .field, #edit-open, #edit-new, #md-panel, #plane-panel';
+const EDIT_LOCKS = '.bar .field, #edit-open, #edit-new, #find-open, #md-panel, #plane-panel';
 const edit = createEditMode({
   state, canvas, engine, setStatus, turnView,
   show: showEdited,

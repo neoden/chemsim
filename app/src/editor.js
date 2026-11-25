@@ -17,7 +17,7 @@ import { NUMBERS, VALENCE, COVALENT, BOHR_ANGSTROM } from './units.js';
 // the usual number of bonds of an element: how many hydrogens a new atom arrives with.
 // Elements that are not listed arrive bare, and nothing is added to or taken from them.
 export const BONDS = { H: 1, B: 3, C: 4, N: 3, O: 2, F: 1, Si: 4, P: 3, S: 2, Cl: 1, Br: 1 };
-export const MAX_ATOMS = 40;
+export const MAX_ATOMS = 100;
 
 const SHORTER = [0, 1, 0.87, 0.78]; // a double and a triple bond against a single one
 const radius = (el) => COVALENT[NUMBERS[el]] / BOHR_ANGSTROM;
@@ -83,15 +83,22 @@ function lonePairs(el, used) {
 // about it: it is turned to where the new atoms are farthest from the rest of the molecule
 // (staggered against the neighbour's own substituents), or, on a double bond, into the plane
 // of the other end.
-function spread(d, k, count, length) {
+// `used` is the number of bonds the atom will have in the end, when not all of them are in
+// the molecule yet (a molecule being built from its graph).
+function spread(d, k, count, length, used) {
   const centre = at(d, k), nb = neighbours(d, k);
   const fixed = nb.map((n) => unit(sub(at(d, n.atom), centre)));
-  const lone = lonePairs(d.elements[k], nb.reduce((s, n) => s + n.order, 0) + count);
+  const lone = lonePairs(d.elements[k], used ?? nb.reduce((s, n) => s + n.order, 0) + count);
   // a deterministic start, well spread and in no special position
   let free = Array.from({ length: count + lone }, (_, i) => {
     const z = 1 - 2 * (i + 0.5) / (count + lone), r = Math.sqrt(1 - z * z), phi = 2.399963 * i + 0.7;
     return unit([r * Math.cos(phi) + 0.13, r * Math.sin(phi) - 0.07, z + 0.11]);
   });
+  // They start on the side away from the bonds that are there. Between three bonds the
+  // repulsion is almost level, and a point that started there could stay there: a hydrogen
+  // pointing into a cage.
+  const taken = fixed.reduce((s, v) => s.map((x, c) => x + v[c]), [0, 0, 0]);
+  if (Math.hypot(...taken) > 0.3) free = free.map((v) => unit(sub(v, taken)));
   for (let iter = 0; iter < 400; iter++) {
     free.forEach((v, i) => {
       const f = [0, 0, 0];
@@ -185,6 +192,17 @@ function tidy(d) {
     }
     for (let i = 0; i < p.length; i++) p[i] += move[i];
   }
+}
+
+// how far the worst bond is from its ideal length, as a fraction of that length
+const strain = (d) => Math.max(...d.bonds.map(([i, j, order]) => { const want = bondLength(d.elements[i], d.elements[j], order); return Math.abs(distance(d, i, j) - want) / want; }));
+
+// are two atoms that are not bonded nearly as close as bonded ones would be?
+function crowded(d) {
+  const n = d.elements.length;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++)
+    if (distance(d, i, j) < radius(d.elements[i]) + radius(d.elements[j]) + 0.3 / BOHR_ANGSTROM && findBond(d, i, j) < 0) return true;
+  return false;
 }
 
 // ---- operations
@@ -307,6 +325,74 @@ export function centred(m) {
 }
 
 // ---- in and out
+
+// A molecule from its bond graph alone, as SMILES gives it: { atoms: [{ el, h }], bonds:
+// [[i, j, order]], charge }, h being the number of hydrogens of an atom. Each piece of the
+// graph is grown from its first atom the way the editor grows a molecule: an atom places
+// all its neighbours and hydrogens at once, spread over the sphere. The bonds that close
+// rings are added at the end, and the springs of tidy() pull the rings shut. Separate pieces
+// (the ions of a salt) are set side by side.
+export function fromGraph(graph) {
+  const n = graph.atoms.length, total = graph.atoms.reduce((s, a) => s + 1 + a.h, 0);
+  if (total > MAX_ATOMS) throw new Error(`The editor takes molecules of up to ${MAX_ATOMS} atoms; this one has ${total}.`);
+  const links = graph.atoms.map(() => []);
+  for (const [i, j, order] of graph.bonds) { links[i].push({ atom: j, order }); links[j].push({ atom: i, order }); }
+  const used = links.map((l, k) => l.reduce((s, x) => s + x.order, 0) + graph.atoms[k].h);
+  const placed = new Array(n).fill(-1), pieces = [];
+  for (let root = 0; root < n; root++) {
+    if (placed[root] >= 0) continue;
+    const d = draft(emptyMolecule()), queue = [root], closing = [];
+    placed[root] = addAtom(d, graph.atoms[root].el, [0, 0, 0]);
+    for (let q = 0; q < queue.length; q++) {
+      const k = queue[q], me = placed[k], { el, h } = graph.atoms[k], centre = at(d, me);
+      const kids = links[k].filter((x) => placed[x.atom] < 0);
+      for (const x of links[k]) if (placed[x.atom] >= 0 && x.atom < k && findBond(d, me, placed[x.atom]) < 0) closing.push([placed[x.atom], me, x.order]);
+      // The heavy neighbours take the directions with the most room around them and the
+      // hydrogens the rest: a chain then goes on straight (anti) instead of coiling into itself.
+      const reach = 1.5 / BOHR_ANGSTROM, others = d.elements.map((_, a) => a).filter((a) => a !== me).map((a) => at(d, a));
+      const crowding = (v) => others.reduce((sum, q) => { const r = sub(v.map((x, c) => centre[c] + reach * x), q); return sum + 1 / (dot(r, r) ** 2 + 1e-6); }, 0);
+      const dirs = spread(d, me, kids.length + h, reach, used[k]).map((v) => [crowding(v), v]).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+      kids.forEach((x, i) => {
+        const length = bondLength(el, graph.atoms[x.atom].el, x.order);
+        placed[x.atom] = addAtom(d, graph.atoms[x.atom].el, dirs[i].map((v, c) => centre[c] + length * v));
+        d.bonds.push([me, placed[x.atom], x.order]);
+        queue.push(x.atom);
+      });
+      for (const v of dirs.slice(kids.length)) d.bonds.push([me, addAtom(d, 'H', v.map((x, c) => centre[c] + bondLength(el, 'H') * x)), 1]);
+    }
+    // a bond between two atoms of the tree that is not in it closes a ring
+    const rings = closing.filter(([i, j]) => findBond(d, i, j) < 0);
+    // the springs are also what parts two branches of a large molecule that grew into each other
+    if (rings.length || crowded(d)) {
+      d.bonds.push(...rings);
+      tidy(d);
+      // A cage can come out tangled, with bonds left stretched. Then the atoms are shaken and
+      // the springs run again, a few times, and the least strained result is kept.
+      let best = [...d.positions], least = strain(d), seed = 12345;
+      for (let attempt = 1; attempt <= 12 && least > 0.08; attempt++) {
+        d.positions = best.map((v) => { seed = (seed * 1103515245 + 12345) % 2147483648; return v + (seed / 2147483648 - 0.5) * (1 + attempt) ; });
+        tidy(d);
+        const now = strain(d);
+        if (now < least) { least = now; best = [...d.positions]; }
+      }
+      d.positions = best;
+      for (const k of queue) if (graph.atoms[k].h && graph.atoms[k].el !== 'H') rehydrogenate(d, placed[k], graph.atoms[k].h);
+    }
+    pieces.push(centred(finish(d)));
+  }
+  // the pieces in a row, 2.5 A between the spheres that hold them
+  const out = emptyMolecule();
+  let edge = 0;
+  pieces.forEach((p, c) => {
+    const size = Math.sqrt(Math.max(...p.elements.map((_, k) => dot(at(p, k), at(p, k))))), x = c ? edge + 2.5 / BOHR_ANGSTROM + size : 0, first = out.elements.length;
+    out.elements.push(...p.elements);
+    out.positions.push(...p.positions.map((v, i) => (i % 3 ? v : v + x)));
+    out.bonds.push(...p.bonds.map(([i, j, o]) => [i + first, j + first, o]));
+    edge = x + size;
+  });
+  out.charge = graph.charge ?? 0;
+  return centred(out);
+}
 
 // Bonds of a geometry that came without them: two atoms closer than 1.3 times the sum of
 // their covalent radii are bonded (the criterion of pieces() in scene.js). Between C, N, O,
