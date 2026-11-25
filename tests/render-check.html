@@ -22,8 +22,47 @@ async function openApp(query) {
   await w.chemsim.ready;
   return w;
 }
-const out = { ok: true, grid: [], xtb: [], speed: [] };
+const out = { ok: true, orbital: [], grid: [], xtb: [], speed: [] };
+const difference = (a, b) => {
+  let max = 0, sum = 0, over = 0;
+  for (let i = 0; i < a.data.length; i++) {
+    const d = Math.abs(a.data[i] - b.data[i]);
+    if (d > max) max = d; sum += d; if (d > 8) over++;
+  }
+  return { maxDiff: max, meanDiff: +(sum / a.data.length).toFixed(4), channelsOver8: over };
+};
 try {
+  // ---- D. the frame drawn from the orbital grid against the exact frame: one scene, both ways
+  if (!only || only === 'orbital') {
+  for (const [mol, orb, more] of [['h2o', 'homo'], ['h2o', '0'], ['bh3nh3', 'homo'], ['c2h4', 'lumo'], ['c6h6', 'homo'], ['b2h6', 'lumo'], ['sf6', 'homo'], ['ticl4', 'lumo'], ['feco5', 'homo'], ['ferrocene', 'homo'],
+    ['c6h6', 'homo', '&plane=view&pmode=knife'], ['bh3', 'lumo', '&second=nh3'], ['pair', 'homo']]) {
+    const w = await openApp(`mol=${mol}&orb=${orb}&wobble=0&canvas=900x700${more ?? ''}`);
+    const urls = [w.chemsim.snapshot(false), w.chemsim.snapshot(true)], name = `orbital-${mol}-${orb}${more ? '-' + more.replace(/[^a-z0-9]+/g, '') : ''}`;
+    await report(`${name}-grid.png`, urls[0]);
+    await report(`${name}-exact.png`, urls[1]);
+    const row = { mol, orb, more, fromGrid: w.chemsim.renderer.orbGrid, gridSize: w.chemsim.renderer.orb.n, ...difference(await toImageData(urls[0]), await toImageData(urls[1])) };
+    out.orbital.push(row);
+    await log('orbital ' + JSON.stringify(row));
+  }
+  }
+  // ---- E. which frames are exact: the grid while the picture changes, one exact frame once it stands still
+  if (!only || only === 'still') {
+    const w = await openApp('mol=h2o&wobble=0&canvas=900x700');
+    const r = w.chemsim.renderer, draw = r.draw.bind(r), calls = [];
+    r.draw = (camera, options) => { calls.push(options.exact ? 'exact' : 'grid'); draw(camera, options); };
+    const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+    await wait(600); // the first frames are over
+    calls.length = 0;
+    w.chemsim.selectOrbital(0);
+    await wait(100);
+    const early = calls.join(' ');
+    await wait(600);
+    const late = calls.join(' ');
+    await wait(400);
+    out.still = { early, late, after: calls.join(' '), ok: early === 'grid' && late === 'grid exact' && calls.length === 2 };
+    if (!out.still.ok) out.ok = false;
+    await log('still ' + JSON.stringify(out.still));
+  }
   // ---- C. body density from the 3D grid against the exact evaluation
   if (!only || only === 'grid') {
   for (const [mol, orb] of [['h2o', 'homo'], ['bh3nh3', 'homo'], ['c2h4', 'lumo'], ['c6h6', 'homo'], ['b2h6', 'lumo'], ['sf6', 'homo'], ['ticl4', 'lumo'], ['feco5', 'homo']]) {

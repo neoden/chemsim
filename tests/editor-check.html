@@ -113,7 +113,7 @@ try {
     let draws = 0;
     const real = c.renderer.draw.bind(c.renderer);
     c.renderer.draw = (...args) => { draws++; return real(...args); };
-    await sleep(100); draws = 0;
+    await sleep(500); draws = 0; // by now the picture has stood still long enough to have had its exact frame
     const [x, y] = screen(heavy()[0]);
     for (let i = 0; i < 12; i++) { fire('pointermove', x + (i % 2 ? 60 : 0), y); await sleep(30); }
     const lit = d.querySelectorAll('#skeleton .hot').length;

@@ -49,6 +49,10 @@ let shownCamera = state.camera; // the camera of the last drawn frame, wobble in
 
 let freshScene = false; // set when an experiment is chosen: its spin setting applies even if the molecules stay the same
 let renderer, library, dirty = true, overlay = false, drag = null, last = 0, slow = 0, lastMolKey = null;
+// The cloud is drawn from the orbital grid while the picture changes. Once it has stood still
+// for STILL_MS it is drawn once more, exactly: `refined` says that this has been done.
+const STILL_MS = 200;
+let drawnAt = 0, refined = false;
 let scale = Math.min(window.devicePixelRatio || 1, 1.25);
 let resolveReady;
 const ready = new Promise((r) => (resolveReady = r));
@@ -60,8 +64,9 @@ if (params.has('canvas')) {
 }
 
 try {
-  // test hook: ?bodygrid=0 evaluates the body density exactly at every ray step
-  renderer = new FogRenderer(canvas, { bodyGrid: params.get('bodygrid') !== '0' });
+  // test hooks: ?bodygrid=0 evaluates the body density exactly at every ray step,
+  // ?orbgrid=0 the selected orbital as well (every frame is then an exact one)
+  renderer = new FogRenderer(canvas, { bodyGrid: params.get('bodygrid') !== '0', orbGrid: params.get('orbgrid') !== '0' });
 } catch (e) {
   setStatus(e.message, true);
   throw e;
@@ -405,10 +410,11 @@ function resize() {
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; dirty = true; }
 }
 
-function render(ts) {
+// exact: the orbital evaluated at every ray step rather than read from its grid (see fog.js)
+function render(ts, exact = false) {
   const wob = state.wobble && !drag && !edit.active;
   const camera = wob ? turnCamera(state.camera, 0.22 * Math.sin(ts * 0.0008), 0) : { ...state.camera };
-  if (state.result && !(edit.active && !edit.cloud)) renderer.draw(camera, { body: state.body }); else renderer.clear();
+  if (state.result && !(edit.active && !edit.cloud)) renderer.draw(camera, { body: state.body, exact }); else renderer.clear();
   placeLabels(camera);
   shownCamera = camera;
   if (edit.active) edit.draw(camera);
@@ -437,6 +443,14 @@ function frame(ts) {
     last = live ? ts : 0;
     render(ts);
     dirty = false;
+    overlay = false;
+    drawnAt = ts;
+    refined = !renderer.orbGrid; // without the grid the frame is exact already
+  } else if (!refined && !drag && !state.md?.running && ts - drawnAt > STILL_MS) {
+    // nothing has changed for a while: the same frame once more, exactly
+    last = 0;
+    render(ts, true);
+    refined = true;
     overlay = false;
   } else {
     last = 0;
@@ -874,26 +888,42 @@ window.chemsim = {
   },
   // the flat plot of the cut as a PNG data URL
   sliceSnapshot: () => $('slice').toDataURL('image/png'),
-  // renders one frame without wobble and returns it as a PNG data URL
-  snapshot() { resize(); render(0); dirty = true; return canvas.toDataURL('image/png'); },
-  // median time of n full frames in ms, GPU work included
+  // renders one frame without wobble and returns it as a PNG data URL: the exact frame, or
+  // with exact = false the one drawn from the orbital grid
+  snapshot(exact = true) { resize(); render(0, exact); dirty = true; return canvas.toDataURL('image/png'); },
+  // Median time of n full frames in ms, GPU work included: ms for a frame drawn from the
+  // orbital grid (what is shown while the picture changes), exactMs for an exact one, gridMs
+  // and orbGridMs for filling the body and the orbital grid.
   benchmark(n = 20) {
-    const gl = renderer.gl, px = new Uint8Array(4), times = [];
+    const gl = renderer.gl, px = new Uint8Array(4);
     resize();
-    for (let i = 0; i < n; i++) {
+    const median = (exact) => {
+      const times = [];
+      render(0, exact); // the first frame of a kind builds its shader and fills its grid
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      for (let i = 0; i < n; i++) {
+        const t = performance.now();
+        render(0, exact);
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); // waits for the GPU
+        times.push(performance.now() - t);
+      }
+      return times.sort((a, b) => a - b)[n >> 1];
+    };
+    const ms = median(false), exactMs = median(true);
+    dirty = true;
+    let orbGridMs = 0;
+    if (renderer.orbGrid) {
       const t = performance.now();
-      render(0);
-      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); // waits for the GPU
-      times.push(performance.now() - t);
+      for (let i = 0; i < 5; i++) { renderer._fillOrbital(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); }
+      orbGridMs = (performance.now() - t) / 5;
     }
-    times.sort((a, b) => a - b);
     let gridMs = 0;
     if (renderer.bodyGrid) {
       const t = performance.now();
       for (let i = 0; i < 5; i++) { renderer._fillGrid(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); }
       gridMs = (performance.now() - t) / 5;
     }
-    return { gridMs, ms: times[n >> 1], width: canvas.width, height: canvas.height, gpu: renderer.rendererName(), bodyGrid: renderer.bodyGrid, gridSize: renderer.grid.n };
+    return { gridMs, orbGridMs, ms, exactMs, orbGrid: renderer.orbGrid, width: canvas.width, height: canvas.height, gpu: renderer.rendererName(), bodyGrid: renderer.bodyGrid, gridSize: renderer.grid.n };
   },
 };
 

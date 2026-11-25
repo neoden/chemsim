@@ -8,7 +8,7 @@ const extra = new URLSearchParams(location.search).get('q') || '';
 const frame = document.getElementById('app');
 const out = { ok: true, rows: [] };
 try {
-  for (const mol of ['h2o', 'bh3nh3', 'c6h6', 'b3n3h6']) for (const body of [1, 0]) {
+  for (const mol of ['h2o', 'bh3nh3', 'c6h6', 'b3n3h6', 'ferrocene']) for (const body of [1, 0]) {
     const done = new Promise((r) => frame.addEventListener('load', r, { once: true }));
     frame.src = `/app/index.html?mol=${mol}&wobble=0&body=${body}&${extra}`;
     await done;
@@ -17,7 +17,7 @@ try {
     await w.chemsim.ready;
     const b = w.chemsim.benchmark(12);
     out.gpu = b.gpu;
-    out.rows.push(`${mol.padEnd(7)} atoms ${String(w.chemsim.state.molecule.elements.length).padStart(2)}  body ${body}  ${b.width}x${b.height}  ${b.ms.toFixed(1)} ms`);
+    out.rows.push(`${mol.padEnd(7)} atoms ${String(w.chemsim.state.molecule.elements.length).padStart(2)}  body ${body}  ${b.width}x${b.height}  grid ${b.ms.toFixed(1)} ms  exact ${b.exactMs.toFixed(1)} ms  filling the orbital grid (${b.gridSize}) ${b.orbGridMs.toFixed(1)} ms`);
   }
 } catch (e) { out.ok = false; out.error = String(e.stack || e); }
 await report('done.json', JSON.stringify(out, null, 1));

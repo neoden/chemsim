@@ -30,7 +30,7 @@ The contents of `dist/` are the finished site: plain static files with relative 
 
 - `app/` — the application.
   - `src/engine/` — the engine `xtb.js` (GFN2-xTB in WebAssembly) behind the interface described in `worker.js`. It runs in a Web Worker; stale requests are dropped.
-  - `src/render/fog.js` — the renderer: ray marching in WebGL2, with the basis and coefficients in data textures; the plane cut lives here too.
+  - `src/render/fog.js` — the renderer: ray marching in WebGL2, with the basis and coefficients in data textures; the plane cut lives here too. While the picture changes, the selected orbital is read from a 3D texture filled once per geometry and orbital; a picture that stands still is drawn once more with the orbital evaluated exactly at every ray step.
   - `src/md.js` — molecular dynamics: integrator, thermostat, wall. No DOM, so it runs both in a Worker and in Node.
   - `src/orbitals.js` — the basis functions of a shell (s, p, d) and their order, signs, the overlap matrix, matching orbitals between frames.
   - `src/experiments.js` — the list of ready-made experiments: molecules, settings, a hint and the expected products.
@@ -70,7 +70,7 @@ node tests/adduct.test.mjs                  # BH3 + NH3, brought together "by mo
 node tests/experiments-screen.mjs           # experiment screening: some fifty pairs, brought together "by mouse" or heated, and what they yield
 node tests/md-dissociation.mjs              # at what temperature and after how long B–N breaks (8 runs per temperature)
 node engine/probe/compare.mjs               # WebAssembly against the native build: energy, forces, orbitals
-node tests/run-browser.mjs render-check.html   # rendering in headless Chromium: the body from the grid against the exact evaluation, screenshots, frame time
+node tests/run-browser.mjs render-check.html   # rendering in headless Chromium: frames drawn from the orbital grid and the body grid against the exact evaluation, the exact frame of a still picture, screenshots, frame time
 node tests/run-browser.mjs plane-check.html    # cutting plane: accuracy of the field on the cut, snapping, mouse control, screenshots
 node tests/run-browser.mjs md-check.html       # dynamics in the browser: start, pause, step, reset, steps per second, orbitals without flicker
 node tests/run-browser.mjs hands-check.html    # a second molecule, moving and rotating, grabbing a nucleus with a spring, the third color, the energy plot
@@ -78,7 +78,7 @@ node tests/run-browser.mjs editor-check.html   # the molecule editor by mouse: b
 node tests/run-browser.mjs site-check.html     # the built dist/ site: works from a subfolder, requests nothing external, licenses and sources in place
 node tests/run-browser.mjs library-check.html  # every library molecule opens and runs in dynamics
 node tests/run-browser.mjs experiments-check.html  # every experiment in the list loads; those that run hands-free give the promised products
-node tests/run-browser.mjs speed-check.html    # frame time per molecule
+node tests/run-browser.mjs speed-check.html    # frame time per molecule: from the orbital grid, exact, and filling the grid
 node tests/screenshot.mjs "mol=bh3nh3&wobble=0" tests/out/app.png   # a screenshot of the whole page
 ```
 
@@ -89,7 +89,7 @@ node tests/run-browser.mjs context-check.html --scale=1.875   # the WebGL contex
 node tests/run-browser.mjs gl-bisect.html --log               # after which GL call the context is lost
 ```
 
-URL parameters for the checks: `mol`, `orb` (`homo`, `lumo`, a number), `body`, `wobble`, `yaw`, `pitch`, `canvas=WxH`, `bodygrid=0` (the body is computed exactly at every point of the ray), `plane` (`view`, `three:0,1,2`, `along:0,1`, `across:0,1`; the numbers are atom indices), `pmode` (`knife`, `sheet`), `pfield` (`psi`, `rho`), `poffset` (offset in Å), `second` (the second molecule), `experiment` (the experiment key), `md=run`, `edit` (`1`: the editor on the scene, `new`: on a new molecule), `temp` (K), `thermostat=0`, `speed` (fs/s, 0 for maximum), `dt` (fs), `seed`.
+URL parameters for the checks: `mol`, `orb` (`homo`, `lumo`, a number), `body`, `wobble`, `yaw`, `pitch`, `canvas=WxH`, `bodygrid=0` (the body is computed exactly at every point of the ray), `orbgrid=0` (the selected orbital as well: every frame is an exact one, as before the orbital grid), `plane` (`view`, `three:0,1,2`, `along:0,1`, `across:0,1`; the numbers are atom indices), `pmode` (`knife`, `sheet`), `pfield` (`psi`, `rho`), `poffset` (offset in Å), `second` (the second molecule), `experiment` (the experiment key), `md=run`, `edit` (`1`: the editor on the scene, `new`: on a new molecule), `temp` (K), `thermostat=0`, `speed` (fs/s, 0 for maximum), `dt` (fs), `seed`.
 
 ## Licenses
 

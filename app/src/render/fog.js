@@ -21,8 +21,10 @@ const BASIS_GLSL = `
 // uShell: l, first primitive, primitive count, first AO. A shell has 2l+1 functions, l <= 2:
 // s; p: x, y, z; d: sqrt(3) xy, sqrt(3) yz, z2-(x2+y2)/2, sqrt(3) xz, sqrt(3)/2 (x2-y2)
 // uPrim: exponent, coefficient
-// uCoef: row 0 = selected orbital; rows 1..uNO = occupied orbitals times sqrt(occupation)
-uniform sampler2D uAtom,uShell,uPrim,uCoef;
+// uCoef: the selected orbital
+// uOcc: the occupied orbitals times sqrt(occupation), four to a row (one in each channel),
+// uNO rows: the density sums four orbitals with every texel it reads
+uniform sampler2D uAtom,uShell,uPrim,uCoef,uOcc;
 uniform int uNA,uNO;
 const float S32=0.8660254038; // sqrt(3)/2
 float cf(int ao,int row){return texelFetch(uCoef,ivec2(ao,row),0).x;}
@@ -96,28 +98,61 @@ n+=5;
 }
 }
 float rho=0.0;
-for(int m=1;m<=uNO;m++){
-float q=0.0;
-for(int j=0;j<n;j++)q+=cf(idx[j],m)*chi[j];
-rho+=q*q;
+for(int m=0;m<uNO;m++){
+vec4 q=vec4(0.0);
+for(int j=0;j<n;j++)q+=texelFetch(uOcc,ivec2(idx[j],m),0)*chi[j];
+rho+=dot(q,q);
 }
 return rho;
 }`;
 
-// Fills one slice of the body-density grid with log(rho).
+// The grids are filled in one draw call each: all the slices of the cube side by side on a
+// flat sheet, uCols of them in a row, which is then copied into the 3D texture slice by slice.
+// One draw call a slice was several times slower for the body: a call takes at least as long
+// as the shader runs for one point, however few points there are in it.
+const SHEET_GLSL = `
+uniform float uRb,uN,uCols;
+// the point of the cube that this fragment of the sheet stands for; false past the last slice
+bool sheetPoint(out vec3 p){
+vec2 tile=floor(gl_FragCoord.xy/uN);
+float z=tile.y*uCols+tile.x;
+p=(vec3(gl_FragCoord.xy-tile*uN,z+0.5)/uN*2.0-1.0)*uRb;
+return z<uN-0.5;
+}`;
+
+// Fills the sheet with log(rho) for the body-density grid.
 const gridSource = (maxAo) => `#version 300 es
 precision highp float;
 precision highp int;
 precision highp sampler2D;
 #define MAXAO ${maxAo}
 out vec4 o;
-uniform float uRb,uZ,uN;
+${SHEET_GLSL}
 ${BASIS_GLSL}
 void main(){
-vec3 p=(vec3(gl_FragCoord.xy,uZ+0.5)/uN*2.0-1.0)*uRb;
+vec3 p;
+if(!sheetPoint(p))discard;
 o=vec4(log(density(p)+1e-13),0.0,0.0,1.0);
 }`;
 
+// Fills the sheet for the orbital grid: the selected orbital with its analytic gradient, the
+// part that sits on the atoms of fragment uPart.
+const orbitalGridSource = (maxAo) => `#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+#define MAXAO ${maxAo}
+out vec4 o;
+uniform int uPart;
+${SHEET_GLSL}
+${BASIS_GLSL}
+void main(){
+vec3 p;
+if(!sheetPoint(p))discard;
+float pa,pb;vec3 ga,gb;
+orbital2(p,pa,ga,pb,gb);
+o=uPart==0?vec4(pa,ga):vec4(pb,gb);
+}`;
 
 // Colour of the cut at point p: the field is evaluated exactly there (no grid), drawn as a
 // colour map with isolines every factor of 2 and, for an orbital, the nodal line in white.
@@ -172,7 +207,11 @@ o=vec4(pow(mix(vec3(0.006,0.007,0.012),c.rgb,c.a),vec3(1.0/2.2)),1.0);
 
 // grid = true: the body density is read from a 3D texture of log(rho) filled once per
 // geometry; grid = false: it is evaluated exactly at every ray step (slow, the reference).
-const fragmentSource = (maxAo, maxAtoms, grid) => `#version 300 es
+// orbGrid = true: the selected orbital and its gradient are read from 3D textures filled once
+// per geometry and orbital; orbGrid = false: they are evaluated from the basis set at every
+// ray step. That is the costly part of a frame (some thirty exponentials a step for water,
+// more with every atom nearby), and what the grid replaces with one or two texture reads.
+const fragmentSource = (maxAo, maxAtoms, grid, orbGrid) => `#version 300 es
 precision highp float;
 precision highp int;
 precision highp sampler2D;
@@ -184,7 +223,7 @@ uniform vec2 uR;
 uniform vec3 uCam,uRt,uUp,uFw; // uCam.z: the camera's distance; the rest: its axes, see cameraBasis
 uniform float uRb,uGhost,uBody;
 uniform int uSteps;
-uniform sampler3D uRho;
+uniform sampler3D uRho,uPsiA,uPsiB;
 // cutting plane: dot(uPl.xyz, p) = uPl.w; uPlMode 0 off, 1 knife (the side the normal points
 // to is removed), 2 sheet (fog on both sides); uPlR: radius of the drawn disc
 uniform vec4 uPl;
@@ -248,7 +287,9 @@ float lp=-30.0,lb=-30.0;
 for(int i=0;i<uSteps;i++){
 vec3 p=ro+rd*t;
 float pa,pb;vec3 ga,gb;
-orbital2(p,pa,ga,pb,gb);
+${orbGrid ? `vec3 pq=p/uRb*0.5+0.5;
+vec4 A=textureLod(uPsiA,pq,0.0);pa=A.x;ga=A.yzw;pb=0.0;gb=vec3(0.0);
+if(uFrags>1){vec4 B=textureLod(uPsiB,pq,0.0);pb=B.x;gb=B.yzw;}` : 'orbital2(p,pa,ga,pb,gb);'}
 float psi=pa+pb;vec3 g=ga+gb;
 float l=log(psi*psi+1e-13),lr=uBody>0.5?logDensity(p):-30.0;
 if(i==0){lp=l;lb=lr;}
@@ -294,9 +335,10 @@ col+=vec3(1.0)*exp(-d2/dsz)*(0.25+0.75*TN[k]);
 o=vec4(pow(clamp(col,0.0,1.0),vec3(1.0/2.2)),1.0);
 }`;
 
-const UNIFORMS = ['uR', 'uCam', 'uRt', 'uUp', 'uFw', 'uRb', 'uGhost', 'uBody', 'uNA', 'uNO', 'uSteps', 'uAtom', 'uShell', 'uPrim', 'uCoef', 'uRho', 'uZ', 'uN',
+const UNIFORMS = ['uR', 'uCam', 'uRt', 'uUp', 'uFw', 'uRb', 'uGhost', 'uBody', 'uNA', 'uNO', 'uSteps', 'uAtom', 'uShell', 'uPrim', 'uCoef', 'uOcc', 'uRho', 'uPsiA', 'uPsiB', 'uN', 'uCols', 'uPart',
   'uPl', 'uPlMode', 'uFrags', 'uPlField', 'uPlR', 'uC', 'uE1', 'uE2', 'uHalf', 'uRaw'];
-const GRID_SPACING = 0.18; // bohr, target voxel size of the body-density grid
+const UNITS = { uAtom: 0, uShell: 1, uPrim: 2, uCoef: 3, uOcc: 8 }; // texture units of the data textures
+const GRID_SPACING = 0.18; // bohr, target voxel size of the body-density and orbital grids
 const bucket = (n, min) => { let b = min; while (b < n) b *= 2; return b; };
 
 // Distance beyond which every function of a shell stays below `tol` in absolute value.
@@ -314,14 +356,16 @@ function shellCutoff(shell, tol) {
 export class FogRenderer {
   // bodyGrid: read the body density from a 3D texture (fast). false = exact evaluation at
   // every ray step, as in the reference demo.
-  constructor(canvas, { bodyGrid = true } = {}) {
+  // orbGrid: read the selected orbital from 3D textures as well, in the frames that are not
+  // asked to be exact (see draw). false = every frame is exact.
+  constructor(canvas, { bodyGrid = true, orbGrid = true } = {}) {
     this.canvas = canvas;
     const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
     if (!gl) throw new Error('WebGL2 is not available in this browser.');
     this.gl = gl;
     this.programs = new Map();
     this.textures = {};
-    for (const name of ['uAtom', 'uShell', 'uPrim', 'uCoef']) {
+    for (const name of Object.keys(UNITS)) {
       const t = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, t);
       for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]])
@@ -329,9 +373,16 @@ export class FogRenderer {
       this.textures[name] = t;
     }
     this.scene = null;
-    // the grid needs rendering into a half-float texture
-    this.bodyGrid = bodyGrid && !!(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'));
-    this.grid = { texture: gl.createTexture(), fbo: gl.createFramebuffer(), n: 0 };
+    // the grids need rendering into a half-float texture
+    const floatTarget = !!(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'));
+    this.bodyGrid = bodyGrid && floatTarget;
+    this.grid = { texture: gl.createTexture(), n: 0 };
+    // a: psi and its gradient (the part on fragment 0); b: the part on fragment 1, made only
+    // for a scene of two fragments
+    this.orbGrid = orbGrid && floatTarget;
+    this.orb = { a: null, b: null, n: 0 };
+    // the flat sheet the grids are computed on, and the framebuffer their slices are copied through
+    this.sheet = { texture: null, fbo: gl.createFramebuffer(), layer: gl.createFramebuffer(), n: 0, cols: 0 };
     this.plane = null;
     this.slice = { fbo: gl.createFramebuffer(), texture: null, key: '' };
     this.canReadFloat = !!gl.getExtension('EXT_color_buffer_float');
@@ -392,8 +443,9 @@ export class FogRenderer {
     return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
   }
 
-  // kind: 'grid' (fills the density grid), 'fast' (ray march reading the grid), 'exact',
-  // 'slice' (the flat cut)
+  // kind: 'grid' (fills the density grid), 'orbgrid' (fills the orbital grid), 'slice' (the
+  // flat cut), or the ray march: 'march' followed by 'b' if the body is read from its grid
+  // and by 'o' if the orbital is
   _program(maxAo, maxAtoms, kind) {
     const key = `${kind}/${maxAo}/${maxAtoms}`;
     let p = this.programs.get(key);
@@ -408,7 +460,8 @@ export class FogRenderer {
     };
     const prog = gl.createProgram();
     gl.attachShader(prog, shader(gl.VERTEX_SHADER, VS));
-    gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, kind === 'grid' ? gridSource(maxAo) : kind === 'slice' ? sliceSource(maxAo) : fragmentSource(maxAo, maxAtoms, kind === 'fast')));
+    gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, kind === 'grid' ? gridSource(maxAo) : kind === 'orbgrid' ? orbitalGridSource(maxAo) : kind === 'slice' ? sliceSource(maxAo)
+      : fragmentSource(maxAo, maxAtoms, kind.includes('b', 5), kind.includes('o', 5))));
     gl.linkProgram(prog);
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error('The shader failed to build: ' + gl.getProgramInfoLog(prog));
     p = { prog, U: {} };
@@ -417,9 +470,15 @@ export class FogRenderer {
     return p;
   }
 
-  _upload(name, unit, width, height, internal, format, data) {
+  // the ray march for the scene: with the orbital from its grid, or exact
+  _march(orbGrid) {
+    const s = this.scene;
+    return this._program(bucket(s.nao, 16), bucket(s.nat, 8), `march${this.bodyGrid ? 'b' : ''}${orbGrid ? 'o' : ''}`);
+  }
+
+  _upload(name, width, height, internal, format, data) {
     const gl = this.gl;
-    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.activeTexture(gl.TEXTURE0 + UNITS[name]);
     gl.bindTexture(gl.TEXTURE_2D, this.textures[name]);
     gl.texImage2D(gl.TEXTURE_2D, 0, internal, width, height, 0, format, gl.FLOAT, data);
   }
@@ -453,33 +512,36 @@ export class FogRenderer {
       atomTex.set([firstShell[k], shellCount[k], fragments ? fragments[k] : 0, 0], 4 * (nat + k));
       mr = Math.max(mr, Math.hypot(x, y, z));
     }
-    this._upload('uAtom', 0, nat, 2, gl.RGBA32F, gl.RGBA, atomTex);
-    this._upload('uShell', 1, shells.length, 1, gl.RGBA32F, gl.RGBA, shellTex);
-    this._upload('uPrim', 2, prims.length / 4, 1, gl.RGBA32F, gl.RGBA, new Float32Array(prims));
+    this._upload('uAtom', nat, 2, gl.RGBA32F, gl.RGBA, atomTex);
+    this._upload('uShell', shells.length, 1, gl.RGBA32F, gl.RGBA, shellTex);
+    this._upload('uPrim', prims.length / 4, 1, gl.RGBA32F, gl.RGBA, new Float32Array(prims));
 
     // occupied orbitals, each scaled by sqrt(occupation): rho = sum of squares
     const occupied = [];
     for (let m = 0; m < nmo; m++) if (result.occ[m] > 1e-6) occupied.push(m);
-    const coef = new Float32Array(nao * (1 + occupied.length));
-    occupied.forEach((m, row) => {
-      const w = Math.sqrt(result.occ[m]);
-      for (let i = 0; i < nao; i++) coef[(row + 1) * nao + i] = w * result.coeff[m * nao + i];
+    const occRows = Math.max(1, Math.ceil(occupied.length / 4)), occ = new Float32Array(4 * nao * occRows);
+    occupied.forEach((m, k) => {
+      const w = Math.sqrt(result.occ[m]), at = 4 * nao * (k >> 2) + (k & 3);
+      for (let i = 0; i < nao; i++) occ[at + 4 * i] = w * result.coeff[m * nao + i];
     });
     if (extent) mr = extent;
     const rb = mr + 4.5;
     this.scene = {
-      nat, nao, coef, nOcc: occupied.length, result, rb,
+      nat, nao, coef: new Float32Array(nao), occRows, result, rb,
       nFragments: fragments && fragments.includes(1) ? 2 : 1,
       // same framing as the reference demo; more ray steps only for larger molecules
       distance: 2.3 * (mr + 2.6),
       planeRadius: planeRadius ?? mr + 2.4, // radius of the drawn cutting disc and half-width of the flat plot
       steps: Math.max(120, Math.min(240, Math.round(120 * rb / 8.5))),
-      program: this._program(bucket(nao, 16), bucket(nat, 8), this.bodyGrid ? 'fast' : 'exact'),
       ghost: 0,
       selected: 0,
+      // the grids are filled when a frame first needs them: dynamics may bring several
+      // geometries between two frames, and the body may be switched off
+      orbStale: true,
+      bodyStale: true,
     };
-    this._upload('uCoef', 3, nao, 1 + occupied.length, gl.R32F, gl.RED, coef);
-    if (this.bodyGrid) this._fillGrid();
+    this._upload('uCoef', nao, 1, gl.R32F, gl.RED, this.scene.coef);
+    this._upload('uOcc', nao, occRows, gl.RGBA32F, gl.RGBA, occ);
     return this.scene;
   }
 
@@ -487,47 +549,100 @@ export class FogRenderer {
     const gl = this.gl, s = this.scene;
     gl.uniform1f(U.uRb, s.rb);
     gl.uniform1i(U.uNA, s.nat);
-    gl.uniform1i(U.uNO, s.nOcc);
-    ['uAtom', 'uShell', 'uPrim', 'uCoef'].forEach((name, unit) => {
+    gl.uniform1i(U.uNO, s.occRows);
+    Object.entries(UNITS).forEach(([name, unit]) => {
       gl.activeTexture(gl.TEXTURE0 + unit);
       gl.bindTexture(gl.TEXTURE_2D, this.textures[name]);
       gl.uniform1i(U[name], unit);
     });
   }
 
-  // log(rho) on a cube around the molecule, one slice per draw call
+  // voxels along the edge of the cube around the molecule that the grids cover
+  _gridSize() {
+    return Math.max(64, Math.min(160, Math.ceil(2 * this.scene.rb / GRID_SPACING)));
+  }
+
+  // a cubic 3D texture read with linear interpolation, left bound to the active unit
+  _texture3D(format, n) {
+    const gl = this.gl, t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_3D, t);
+    gl.texStorage3D(gl.TEXTURE_3D, 1, format, n, n, n);
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE]])
+      gl.texParameteri(gl.TEXTURE_3D, k, v);
+    return t;
+  }
+
+  // Fills the 3D texture `target` (n voxels along the edge) with what the program `kind`
+  // computes: one draw call onto the sheet, then a copy of every slice. False if the browser
+  // cannot do that after all.
+  _bake(kind, target, n, part = 0) {
+    const gl = this.gl, s = this.scene, sh = this.sheet;
+    if (sh.n !== n) {
+      const cols = Math.ceil(Math.sqrt(n)), rows = Math.ceil(n / cols);
+      if (cols * n > gl.getParameter(gl.MAX_TEXTURE_SIZE)) return false;
+      gl.activeTexture(gl.TEXTURE5);
+      gl.deleteTexture(sh.texture);
+      sh.texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, sh.texture);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA16F, cols * n, rows * n);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, sh.fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sh.texture, 0);
+      Object.assign(sh, { n, cols, rows });
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, sh.fbo);
+    const usable = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    if (usable) {
+      const { prog, U } = this._program(bucket(s.nao, 16), 0, kind);
+      gl.useProgram(prog);
+      this._bind(U);
+      gl.uniform1f(U.uN, n);
+      gl.uniform1f(U.uCols, sh.cols);
+      gl.uniform1i(U.uPart, part);
+      gl.viewport(0, 0, sh.cols * n, sh.rows * n);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, sh.fbo);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, sh.layer);
+      for (let z = 0; z < n; z++) {
+        const x = (z % sh.cols) * n, y = Math.floor(z / sh.cols) * n;
+        gl.framebufferTextureLayer(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, target, 0, z);
+        gl.blitFramebuffer(x, y, x + n, y + n, 0, 0, n, n, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+      }
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return usable && gl.getError() === gl.NO_ERROR;
+  }
+
+  // The selected orbital and its gradient on the cube around the molecule. Costs about as
+  // much as a hundredth of an exact frame, so it is simply redone for every new geometry and
+  // every newly selected orbital.
+  _fillOrbital() {
+    const gl = this.gl, s = this.scene, o = this.orb, n = this._gridSize(), two = s.nFragments > 1;
+    gl.activeTexture(gl.TEXTURE6);
+    if (o.n !== n) {
+      gl.deleteTexture(o.a);
+      gl.deleteTexture(o.b);
+      o.a = this._texture3D(gl.RGBA16F, n);
+      o.b = null;
+      o.n = n;
+    }
+    if (two && !o.b) o.b = this._texture3D(gl.RGBA16F, n);
+    s.orbStale = false;
+    // if it cannot be done, every frame is exact from now on
+    if (!this._bake('orbgrid', o.a, n, 0) || (two && !this._bake('orbgrid', o.b, n, 1))) this.orbGrid = false;
+  }
+
+  // log(rho) on the same cube
   _fillGrid() {
-    const gl = this.gl, s = this.scene, g = this.grid;
-    const n = Math.max(64, Math.min(160, Math.ceil(2 * s.rb / GRID_SPACING)));
+    const gl = this.gl, s = this.scene, g = this.grid, n = this._gridSize();
     gl.activeTexture(gl.TEXTURE4);
     if (g.n !== n) {
       gl.deleteTexture(g.texture);
-      g.texture = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_3D, g.texture);
-      gl.texStorage3D(gl.TEXTURE_3D, 1, gl.R16F, n, n, n);
-      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE]])
-        gl.texParameteri(gl.TEXTURE_3D, k, v);
+      g.texture = this._texture3D(gl.R16F, n);
       g.n = n;
     }
-    const { prog, U } = this._program(bucket(s.nao, 16), 0, 'grid');
-    gl.useProgram(prog);
-    this._bind(U);
-    gl.uniform1f(U.uN, n);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, g.fbo);
-    gl.viewport(0, 0, n, n);
-    for (let z = 0; z < n; z++) {
-      gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, g.texture, 0, z);
-      if (z === 0 && gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-        // cannot render into this format after all: fall back to the exact path
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-        this.bodyGrid = false;
-        s.program = this._program(bucket(s.nao, 16), bucket(s.nat, 8), 'exact');
-        return;
-      }
-      gl.uniform1f(U.uZ, z);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
-    }
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    s.bodyStale = false;
+    // if it cannot be done, the body is evaluated exactly from now on
+    if (!this._bake('grid', g.texture, n)) this.bodyGrid = false;
   }
 
   // Show orbital m in colour.
@@ -536,7 +651,8 @@ export class FogRenderer {
     s.selected = m;
     s.coef.set(result.coeff.subarray(m * s.nao, (m + 1) * s.nao), 0);
     s.ghost = 1 - Math.min(1, result.occ[m] / 2); // empty orbitals are drawn paler
-    this._upload('uCoef', 3, s.nao, 1 + s.nOcc, gl.R32F, gl.RED, s.coef);
+    this._upload('uCoef', s.nao, 1, gl.R32F, gl.RED, s.coef);
+    s.orbStale = true;
   }
 
   // the empty background, for a scene that has no cloud to show
@@ -548,10 +664,16 @@ export class FogRenderer {
   }
 
   // camera: { yaw, pitch, distance } or one turned freely, see turnCamera
-  draw(camera, { body = true } = {}) {
+  // exact: evaluate the orbital from the basis set at every ray step instead of reading its
+  // grid. Many times slower; meant for the frame that stays on the screen.
+  draw(camera, { body = true, exact = false } = {}) {
     const s = this.scene, gl = this.gl;
     if (!s) return;
-    const { prog, U } = s.program;
+    // either may find its grid unusable
+    if (this.bodyGrid && body && s.bodyStale) this._fillGrid();
+    if (this.orbGrid && !exact && s.orbStale) this._fillOrbital();
+    const fromGrid = this.orbGrid && !exact;
+    const { prog, U } = this._march(fromGrid);
     gl.useProgram(prog);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.uniform2f(U.uR, this.canvas.width, this.canvas.height);
@@ -567,6 +689,14 @@ export class FogRenderer {
     gl.activeTexture(gl.TEXTURE4);
     gl.bindTexture(gl.TEXTURE_3D, this.grid.texture);
     gl.uniform1i(U.uRho, 4);
+    if (fromGrid) {
+      gl.activeTexture(gl.TEXTURE6);
+      gl.bindTexture(gl.TEXTURE_3D, this.orb.a);
+      gl.uniform1i(U.uPsiA, 6);
+      gl.activeTexture(gl.TEXTURE7);
+      gl.bindTexture(gl.TEXTURE_3D, s.nFragments > 1 ? this.orb.b : this.orb.a);
+      gl.uniform1i(U.uPsiB, 7);
+    }
     const pl = this.plane;
     gl.uniform1i(U.uFrags, s.nFragments);
     gl.uniform1i(U.uPlMode, !pl ? 0 : pl.mode === 'knife' ? 1 : 2);
