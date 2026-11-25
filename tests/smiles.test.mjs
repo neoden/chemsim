@@ -40,17 +40,17 @@ for (const [text, want, bondOrders, charge = 0] of [
   ['Cn1cnc2c1c(=O)n(C)c(=O)n2C', 'C8H10N4O2', '111111111112222'], ['CN1C=NC2=C1C(=O)N(C(=O)N2C)C', 'C8H10N4O2', '111111111112222'],
   ['[NH4+]', 'H4N', '', 1], ['[OH-]', 'HO', '', -1], ['C[N+](=O)[O-]', 'CH3NO2', '112'], ['[Na+].[Cl-]', 'ClNa', ''], ['[CH3]', 'CH3', ''],
   ['N[C@@H](C)C(=O)O', 'C3H7NO2', '11112'], ['F/C=C/F', 'C2H2F2', '112'], ['OS(=O)(=O)O', 'H2O4S', '1122'], ['[H][H]', 'H2', ''],
-  ['C%10CC%10', 'C3H6', '111'], ['[13CH4]', 'CH4', ''], ['CCO ethanol', 'C2H6O', '11'], ['[Fe+2]', 'Fe', '', 2], ['ClC(Cl)(Cl)Cl', 'CCl4', '1111'],
+  ['C%10CC%10', 'C3H6', '111'], ['[13CH4]', 'CH4', ''], ['CCO ethanol', 'C2H6O', '11'], ['[Fe+2]', 'Fe', '', 2], ['ClC(Cl)(Cl)Cl', 'CCl4', '1111'], ['CI', 'CH3I', '1'], ['Ic1ccccc1', 'C6H5I', '1111222'], ['F[Xe]F', 'F2Xe', '11'], ['N[Pt](N)(Cl)Cl', 'Cl2H4N2Pt', '1111'], ['c1cc[te]c1', 'C4H4Te', '11122'],
 ]) {
   const m = fromSMILES(text);
   ok(formula(m) === want && orders(m) === bondOrders && m.charge === charge, `${text}: ${want}${charge ? `, charge ${charge}` : ''}${bondOrders ? `, bond orders ${bondOrders}` : ''}`);
 }
-for (const [text, reason] of [['CI', /not among the 36/], ['c1ccnc1', /\[nH\]/], ['C(C', /not closed/], ['C1CC', /never closed/], ['water', /position 1/], ['', /empty/],
-  ['C=', /leads nowhere/], ['C$C', /quadruple/], ['[Xe]', /not among/], ['C11', /bonded twice/], ['H2O', /\[H\]/], ['C'.repeat(33), /up to 100 atoms; this one has 101/]]) {
+for (const [text, reason] of [['C[U]', /not among the 86/], ['c1ccnc1', /\[nH\]/], ['C(C', /not closed/], ['C1CC', /never closed/], ['water', /position 1/], ['', /empty/],
+  ['C=', /leads nowhere/], ['C$C', /quadruple/], ['[Og]', /not among/], ['C11', /bonded twice/], ['H2O', /\[H\]/], ['C'.repeat(33), /up to 100 atoms; this one has 101/]]) {
   assert.throws(() => fromSMILES(text), reason);
   checks++;
 }
-ok(true, 'text that is not SMILES, elements outside the 36 and molecules that are too large are refused, each with its reason');
+ok(true, 'text that is not SMILES, elements past radon and molecules that are too large are refused, each with its reason');
 ok(isSMILES('CO') && isSMILES('c1ccccc1') && !isSMILES('aspirin') && !isSMILES('co') && !isSMILES('2244') && !isSMILES('Benzene'), 'a name is told from SMILES: aspirin, co, 2244 and Benzene are names');
 
 console.log('the geometry built from it');
@@ -148,7 +148,7 @@ console.log('PubChem');
   ok(true, 'an unknown name, a busy server, no connection and an empty field each give their own message');
   const big = { atoms: { aid: Array.from({ length: 101 }, (_, k) => k + 1), element: new Array(101).fill(6) }, coords: [{ aid: [], conformers: [{ x: [], y: [], z: [] }] }] };
   assert.throws(() => fromRecord(big), /up to 100 atoms; this one has 101/);
-  assert.throws(() => fromRecord({ ...record.PC_Compounds[0], atoms: { ...record.PC_Compounds[0].atoms, element: [53, 6, 6, 1, 1, 1, 1, 1, 1] } }), /number 53/);
-  ok(true, 'a compound that is too large or has an element past krypton is refused');
+  assert.throws(() => fromRecord({ ...record.PC_Compounds[0], atoms: { ...record.PC_Compounds[0].atoms, element: [92, 6, 6, 1, 1, 1, 1, 1, 1] } }), /number 92/);
+  ok(true, 'a compound that is too large or has an element past radon is refused');
 }
 console.log(`\n${checks} checks passed`);

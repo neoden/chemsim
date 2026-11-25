@@ -114,13 +114,20 @@ aside { overflow-y: auto; }
 #edit-charge { width: 52px; }
 #edit-name { width: 190px; }
 #edit-element button { min-width: 34px; }
-#edit-element button::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: var(--dot); }
+#edit-element button:not(#edit-more)::before, #element-table button::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: var(--dot); }
 #edit-relax[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); border-color: #2f4a78; }
 #edit-done { background: var(--accent-bg); color: var(--accent); border-color: #2f4a78; }
 .stage.editing #view, .stage.editing #view:active { cursor: default; }
 .stage.editing #view.editing-erase { cursor: crosshair; }
 .stage.editing #status { max-width: min(70%, 640px); }
 #xyz, #find { width: min(560px, 92vw); }
+#elements { width: min(760px, 96vw); max-width: none; }
+#elements p { margin: 6px 0 12px; font-size: 13px; color: var(--muted); }
+#element-table { display: grid; grid-template-columns: repeat(18, minmax(0, 1fr)); grid-template-rows: repeat(6, 30px) 8px 30px; gap: 3px; margin-bottom: 14px; }
+#element-table button { min-width: 0; height: 30px; padding: 0; font-size: 12.5px; white-space: nowrap; }
+#element-table button::before { margin-right: 3px; }
+#element-table button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); border-color: #2f4a78; }
+#elements .buttons { display: flex; justify-content: flex-end; }
 #xyz p, #find p { margin: 6px 0; font-size: 13px; color: var(--muted); }
 #xyz-text { display: block; width: 100%; font: 12.5px/1.4 ui-monospace, monospace; color: var(--text); background: #0f1219; border: 1px solid var(--line); border-radius: 8px; padding: 8px; resize: vertical; }
 #find-text { display: block; width: 100%; box-sizing: border-box; font: 13px/1.4 ui-monospace, monospace; color: var(--text); background: #0f1219; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }

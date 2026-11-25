@@ -5,12 +5,32 @@
 import * as E from './editor.js';
 import { project, cameraBasis } from './render/fog.js';
 import { looseScene } from './scene.js';
-import { BOHR_ANGSTROM } from './units.js';
+import { BOHR_ANGSTROM, SYMBOLS, NUMBERS } from './units.js';
 import { fromSMILES, toSMILES, isSMILES } from './smiles.js';
 import { findCompound } from './pubchem.js';
 
-const PALETTE = ['H', 'C', 'N', 'O', 'F', 'P', 'S', 'Cl'];
-const COLOURS = { H: '#e9ebf0', C: '#8f96a3', N: '#5f84ff', O: '#ff5f52', F: '#86e36f', P: '#ff9d42', S: '#f2da46', Cl: '#4fd98a', B: '#f0b6a0', Si: '#d9c29a', Br: '#c0603c' };
+// the elements always at hand; the rest are in the periodic table behind the last button,
+// and the ones taken from there most recently stay next to these
+const PALETTE = ['H', 'C', 'N', 'O', 'F', 'P', 'S', 'Cl'], RECENT = 3;
+// the usual colours of the elements (those of Jmol), in the order of the atomic numbers;
+// the ones the editor had from the start are its own, a little softer on the dark background
+const JMOL = ('ffffff d9ffff cc80ff c2ff00 ffb5b5 909090 3050f8 ff0d0d 90e050 b3e3f5 ab5cf2 8aff00 bfa6a6 f0c8a0 ff8000 ffff30 1ff01f 80d1e3 '
+  + '8f40d4 3dff00 e6e6e6 bfc2c7 a6a6ab 8a99c7 9c7ac7 e06633 f090a0 50d050 c88033 7d80b0 c28f8f 668f8f bd80e3 ffa100 a62929 5cb8d1 '
+  + '702eb0 00ff00 94ffff 94e0e0 73c2c9 54b5b5 3b9e9e 248f8f 0a7d8c 006985 c0c0c0 ffd98f a67573 668080 9e63b5 d47a00 940094 429eb0 '
+  + '57178f 00c900 70d4ff ffffc7 d9ffc7 c7ffc7 a3ffc7 8fffc7 61ffc7 45ffc7 30ffc7 1fffc7 00ff9c 00e675 00d452 00bf38 00ab24 '
+  + '4dc2ff 4da6ff 2194d6 267dab 266696 175487 d0d0e0 ffd123 b8b8d0 a6544d 575961 9e4fb5 ab5c00 754f45 428296').split(' ');
+const COLOURS = { ...Object.fromEntries(JMOL.map((c, i) => [SYMBOLS[i + 1], `#${c}`])),
+  H: '#e9ebf0', C: '#8f96a3', N: '#5f84ff', O: '#ff5f52', F: '#86e36f', P: '#ff9d42', S: '#f2da46', Cl: '#4fd98a', B: '#f0b6a0', Si: '#d9c29a', Br: '#c0603c' };
+// where an element stands in the periodic table: [row, column], the lanthanides in a row of their own
+function tablePlace(z) {
+  if (z === 1) return [1, 1];
+  if (z === 2) return [1, 18];
+  if (z <= 18) { const k = (z - 3) % 8; return [z <= 10 ? 2 : 3, k < 2 ? k + 1 : k + 11]; }
+  if (z <= 54) return [z <= 36 ? 4 : 5, (z - 19) % 18 + 1];
+  if (z <= 56) return [6, z - 54];
+  if (z <= 71) return [8, z - 54];
+  return [6, z - 68];
+}
 const STORE = 'chemsim.molecules';
 export const MY_GROUP = 'My molecules';
 
@@ -319,14 +339,45 @@ export function createEditMode(app) {
   edit.draw = draw;
 
   // ---- the toolbar
-  for (const el of PALETTE) {
+  const recent = [], table = $('elements');
+  const elementButton = (el) => {
     const b = document.createElement('button');
     b.type = 'button'; b.dataset.v = el; b.textContent = el;
     b.style.setProperty('--dot', COLOURS[el]);
-    $('edit-element').append(b);
+    return b;
+  };
+  function buildPalette() {
+    const more = document.createElement('button');
+    more.type = 'button'; more.id = 'edit-more'; more.textContent = '…'; more.title = 'Any other element: the periodic table';
+    $('edit-element').replaceChildren(...[...PALETTE, ...recent].map(elementButton), more);
   }
+  // the element the Draw tool puts in; one that is not on the toolbar takes a place there
+  function pick(el) {
+    if (!PALETTE.includes(el) && !recent.includes(el)) {
+      recent.push(el);
+      if (recent.length > RECENT) recent.shift();
+      buildPalette();
+    }
+    element = el; tool = 'draw';
+    refreshBar();
+    if (edit.active) hint();
+  }
+  buildPalette();
+  for (let z = 1; z in SYMBOLS; z++) {
+    const b = elementButton(SYMBOLS[z]), [row, column] = tablePlace(z);
+    b.style.gridRow = row; b.style.gridColumn = column; b.title = `${SYMBOLS[z]}, number ${z}`;
+    $('element-table').append(b);
+  }
+  $('element-table').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { table.close(); pick(b.dataset.v); } });
+  $('elements-close').addEventListener('click', () => table.close());
   for (const b of $('edit-tool').children) b.addEventListener('click', () => { tool = b.dataset.v; refreshBar(); hint(); });
-  for (const b of $('edit-element').children) b.addEventListener('click', () => { element = b.dataset.v; tool = 'draw'; refreshBar(); hint(); });
+  $('edit-element').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.id !== 'edit-more') { pick(b.dataset.v); return; }
+    for (const c of $('element-table').children) c.setAttribute('aria-pressed', String(c.dataset.v === element));
+    table.showModal();
+  });
   $('edit-cloud').addEventListener('change', (e) => { edit.cloud = e.target.checked; app.redraw(); });
   $('edit-undo').addEventListener('click', undo);
   $('edit-redo').addEventListener('click', redo);
@@ -430,7 +481,7 @@ export function createEditMode(app) {
   Object.assign(edit, {
     enter, leave, done, relax, undo, redo, search, build,
     molecule: () => mol,
-    tool: (t, el) => { tool = t; if (el) element = el; refreshBar(); },
+    tool: (t, el) => { if (el) pick(el); tool = t; refreshBar(); },
     busy: () => !!busy,
   });
   return edit;

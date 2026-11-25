@@ -18,7 +18,7 @@ export function fromRecord(record) {
   if (numbers.length > MAX_ATOMS) throw new Error(`The editor takes molecules of up to ${MAX_ATOMS} atoms; this one has ${numbers.length}.`);
   const row = new Map(ids.map((id, k) => [id, k])), place = record.coords[0].aid.map((id) => row.get(id));
   const elements = numbers.map((z) => {
-    if (!(z in SYMBOLS)) throw new Error(`This compound has an element (number ${z}) that is not among the 36 the program works with.`);
+    if (!(z in SYMBOLS)) throw new Error(`This compound has an element (number ${z}) that is not among the 86 (H to Rn) the program works with.`);
     return SYMBOLS[z];
   });
   const positions = new Array(3 * elements.length).fill(0);

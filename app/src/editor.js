@@ -16,7 +16,7 @@ import { NUMBERS, VALENCE, COVALENT, BOHR_ANGSTROM } from './units.js';
 
 // the usual number of bonds of an element: how many hydrogens a new atom arrives with.
 // Elements that are not listed arrive bare, and nothing is added to or taken from them.
-export const BONDS = { H: 1, B: 3, C: 4, N: 3, O: 2, F: 1, Si: 4, P: 3, S: 2, Cl: 1, Br: 1 };
+export const BONDS = { H: 1, B: 3, C: 4, N: 3, O: 2, F: 1, Si: 4, P: 3, S: 2, Cl: 1, Br: 1, I: 1 };
 export const MAX_ATOMS = 100;
 
 const SHORTER = [0, 1, 0.87, 0.78]; // a double and a triple bond against a single one
@@ -72,7 +72,7 @@ const findBond = (m, i, j) => m.bonds.findIndex(([a, b]) => (a === i && b === j)
 // lone pairs of atom k once it has `used` bonds (orders summed): only for main-group elements
 function lonePairs(el, used) {
   const z = NUMBERS[el];
-  if (z > 20 && z < 31) return 0;
+  if ((z > 20 && z < 31) || (z > 38 && z < 49) || (z > 56 && z < 81)) return 0; // the d metals and the lanthanides
   return Math.max(0, Math.floor((VALENCE[z] - used) / 2));
 }
 
@@ -424,7 +424,7 @@ export function fromXYZ(text, charge = 0) {
     const xyz = f.slice(1, 4).map(Number);
     if (xyz.some((v) => !Number.isFinite(v))) continue;
     const el = f[0][0].toUpperCase() + f[0].slice(1).toLowerCase();
-    if (!(el in NUMBERS)) throw new Error(`Element ${f[0]} is not among the 36 the program works with.`);
+    if (!(el in NUMBERS)) throw new Error(`Element ${f[0]} is not among the 86 (H to Rn) the program works with.`);
     elements.push(el);
     positions.push(...xyz.map((v) => v / BOHR_ANGSTROM));
   }

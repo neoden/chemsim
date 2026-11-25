@@ -11,7 +11,7 @@ import { fromGraph, neighbours, hydrogens, bondLength } from './editor.js';
 
 // the usual numbers of bonds of the elements written without brackets
 const NORMAL = { B: [3], C: [4], N: [3, 5], O: [2], P: [3, 5], S: [2, 4, 6], F: [1], Cl: [1], Br: [1], I: [1] };
-const AROMATIC = { b: 'B', c: 'C', n: 'N', o: 'O', p: 'P', s: 'S', se: 'Se', as: 'As' };
+const AROMATIC = { b: 'B', c: 'C', n: 'N', o: 'O', p: 'P', s: 'S', se: 'Se', as: 'As', te: 'Te' };
 const ORDER = { '-': 1, '=': 2, '#': 3, ':': 0, '/': 1, '\\': 1 }; // 0: aromatic, decided later
 
 // hydrogens of an unbracketed atom with `used` bonds: up to the nearest usual number
@@ -22,7 +22,7 @@ function room(el, charge) {
   if (el === 'B') return 3 - charge;
   if (el === 'C') return 4 - Math.abs(charge);
   if (z === 7 || z === 15 || z === 33) return 3 + charge;
-  return 2 + charge; // O, S, Se
+  return 2 + charge; // O, S, Se, Te
 }
 
 class SmilesError extends Error {}
@@ -35,7 +35,7 @@ export function parseSMILES(input) {
   const atoms = [], bonds = [];
   const stack = [], open = new Map(); // branch points; ring numbers waiting for their other end
   let prev = -1, pending = null, pos = 0;
-  const element = (sym, at) => { if (!(sym in NUMBERS)) throw new SmilesError(`SMILES: element ${sym} at position ${at + 1} is not among the 36 the program works with.`); return sym; };
+  const element = (sym, at) => { if (!(sym in NUMBERS)) throw new SmilesError(`SMILES: element ${sym} at position ${at + 1} is not among the 86 (H to Rn) the program works with.`); return sym; };
   const link = (i, j, symbol, at) => {
     if (i === j || bonds.some(([a, b]) => (a === i && b === j) || (a === j && b === i))) fail(text, at, 'two atoms are bonded twice');
     const both = atoms[i].aromatic && atoms[j].aromatic;
@@ -51,7 +51,7 @@ export function parseSMILES(input) {
   while (pos < text.length) {
     const ch = text[pos], start = pos;
     if (ch === '[') {
-      const m = /^\[(\d*)(se|as|[A-Z][a-z]?|[bcnops])(@{0,2}(?:[A-Z]{2}\d+)?)(H\d*)?(\+\+|--|[+-]\d*)?(?::\d+)?\]/.exec(text.slice(pos));
+      const m = /^\[(\d*)(se|as|te|[A-Z][a-z]?|[bcnops])(@{0,2}(?:[A-Z]{2}\d+)?)(H\d*)?(\+\+|--|[+-]\d*)?(?::\d+)?\]/.exec(text.slice(pos));
       if (!m) fail(text, pos, 'an atom in brackets that cannot be read');
       const aromatic = m[2] in AROMATIC, sign = m[5] ?? '';
       const charge = !sign ? 0 : sign === '++' ? 2 : sign === '--' ? -2 : (sign[0] === '+' ? 1 : -1) * (sign.length > 1 ? +sign.slice(1) : 1);
@@ -188,17 +188,18 @@ function formalCharges(m, heavy, used, onium = true) {
     else if ((z === 5 || z === 13) && v === 4) give(k, -1);
   }
   const lacking = (els, bonds) => heavy.filter((k) => charge.get(k) === 0 && els.includes(m.elements[k]) && used[k] === bonds);
-  if (left < 0) for (const k of [...lacking(['F', 'Cl', 'Br'], 0), ...lacking(['O', 'S', 'Se'], 1), ...lacking(['N', 'P'], 2), ...lacking(['C', 'Si'], 3), ...lacking(['O', 'S', 'Se'], 0), ...lacking(['H'], 0)]) {
+  if (left < 0) for (const k of [...lacking(['F', 'Cl', 'Br', 'I'], 0), ...lacking(['O', 'S', 'Se', 'Te'], 1), ...lacking(['N', 'P'], 2), ...lacking(['C', 'Si'], 3), ...lacking(['O', 'S', 'Se', 'Te'], 0), ...lacking(['H'], 0)]) {
     if (left >= 0) break;
-    give(k, m.elements[k] !== 'H' && used[k] === 0 && ['O', 'S', 'Se'].includes(m.elements[k]) && left <= -2 ? -2 : -1);
+    give(k, m.elements[k] !== 'H' && used[k] === 0 && ['O', 'S', 'Se', 'Te'].includes(m.elements[k]) && left <= -2 ? -2 : -1);
   }
   if (left > 0) {
     for (const k of heavy) {
       if (left <= 0) break;
       const z = NUMBERS[m.elements[k]];
       if (used[k] !== 0 || charge.get(k) !== 0) continue;
-      if ([3, 11, 19].includes(z) || z === 1) give(k, 1);
-      else if ((z === 4 || z === 12 || z === 20 || (z > 20 && z < 31)) && left >= 2) give(k, 2);
+      if ([3, 11, 19, 37, 55].includes(z) || z === 1) give(k, 1);
+      else if (([4, 12, 20, 38, 56].includes(z) || (z > 20 && z < 31) || (z > 38 && z < 49) || (z > 71 && z < 81)) && left >= 2) give(k, 2);
+      else if (z > 56 && z < 72 && left >= 3) give(k, 3); // the lanthanides
       else if (z === 13 && left >= 3) give(k, 3);
     }
     for (const k of lacking(['C', 'Si'], 3)) { if (left <= 0) break; give(k, 1); }
@@ -206,7 +207,7 @@ function formalCharges(m, heavy, used, onium = true) {
   // the ions of a salt, written without their charges: a bare metal and a bare halogen
   if (left === 0) {
     const bare = (zs) => heavy.filter((k) => used[k] === 0 && charge.get(k) === 0 && zs.includes(NUMBERS[m.elements[k]]));
-    const metals = bare([3, 11, 19]), halogens = bare([9, 17, 35]);
+    const metals = bare([3, 11, 19, 37, 55]), halogens = bare([9, 17, 35, 53]);
     for (let c = 0; c < Math.min(metals.length, halogens.length); c++) { give(metals[c], 1); give(halogens[c], -1); }
   }
   if (left !== 0 && onium) return formalCharges(m, heavy, used, false);

@@ -145,5 +145,26 @@ console.log(`${checks} checks passed`);
     worst = Math.min(worst, t);
   }
   ok(worst > 0.9 && sel === 3, `after a small move every orbital keeps its sign and index (smallest overlap with its predecessor ${worst.toFixed(3)})`);
+}
+{
+  // every element of the table, H to Rn: the engine takes the atom with the number of valence
+  // electrons the table gives it and refuses the other parity; its orbitals are orthonormal
+  // under the overlap matrix the page computes from the shells
+  const { SYMBOLS, VALENCE, MASS_AMU, COVALENT } = await import('../app/src/units.js');
+  const wrong = [];
+  let count = 0, worstNorm = 0;
+  for (let z = 1; z in SYMBOLS; z++, count++) {
+    const v = VALENCE[z], atom = (unpaired, orbitals) => xtb.compute({ numbers: [z], positions: [0, 0, 0], charge: 0, etemp: 300, forces: false, orbitals, unpaired });
+    const r = atom(v % 2, true);
+    if (!r.ok || Math.abs(Array.from(r.occ).reduce((a, b) => a + b, 0) - v) > 1e-6 || atom((v + 1) % 2, false).ok || !(MASS_AMU[z] > 0) || !(COVALENT[z] > 0)) { wrong.push(SYMBOLS[z]); continue; }
+    const S = overlapMatrix(r.shells, new Float64Array(3)), n = r.nao;
+    for (let i = 0; i < r.nmo; i++) {
+      let s = 0;
+      for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) s += r.coeff[i * n + a] * S[a * n + b] * r.coeff[i * n + b];
+      worstNorm = Math.max(worstNorm, Math.abs(s - 1));
+    }
+  }
+  ok(count === 86 && wrong.length === 0, `all ${count} elements, H to ${SYMBOLS[count]}: the engine counts the valence electrons the table says${wrong.length ? ` (not: ${wrong.join(' ')})` : ''}`);
+  ok(worstNorm < 1e-8, `and their orbitals are normalized under the page's own overlap matrix (within ${worstNorm.toExponential(1)})`);
   console.log(`${checks} checks passed in total`);
 }

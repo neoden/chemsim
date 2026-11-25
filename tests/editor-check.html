@@ -198,6 +198,33 @@ try {
   await until(() => !ed.active && s.molecule.key === 'c6h6' && !$('edit-open').inert);
   note('cancelled: benzene is back', c.composition() === 'C₆H₆');
 
+  // ---- any element of the periodic table
+  $('edit-new').click();
+  await shown();
+  $('edit-more').click();
+  const cells = [...d.querySelectorAll('#element-table button')];
+  note(`“…” opens the periodic table: ${cells.length} elements, H to ${cells.at(-1).dataset.v}, the chosen one marked (${cells.filter((x) => x.getAttribute('aria-pressed') === 'true').map((x) => x.dataset.v).join()})`,
+    $('elements').open && cells.length === 86 && cells[0].dataset.v === 'H' && cells.at(-1).dataset.v === 'Rn' && cells.filter((x) => x.getAttribute('aria-pressed') === 'true').map((x) => x.dataset.v).join() === 'C');
+  await sleep(100);
+  {
+    // a dialog cannot be put into a picture from here, so its layout is measured instead
+    const box = $('element-table').getBoundingClientRect(), au = cells.find((x) => x.dataset.v === 'Au').getBoundingClientRect(), la = cells.find((x) => x.dataset.v === 'La').getBoundingClientRect(), rn = cells.find((x) => x.dataset.v === 'Rn').getBoundingClientRect();
+    note(`the table is laid out in 18 columns (${box.width.toFixed(0)}x${box.height.toFixed(0)} px, a cell ${au.width.toFixed(0)}x${au.height.toFixed(0)}), the lanthanides in a row below`,
+      au.width > 24 && rn.right <= box.right + 1 && la.top > rn.bottom && cells.every((x) => x.scrollWidth <= x.clientWidth + 1));
+  }
+  cells.find((x) => x.dataset.v === 'I').click();
+  note('a click takes the element and puts it on the toolbar, chosen', !$('elements').open && [...$('edit-element').children].map((x) => x.textContent).join(' ') === 'H C N O F P S Cl I …' && $('edit-element').querySelector('[data-v="I"]').getAttribute('aria-pressed') === 'true');
+  h = freeH(0);
+  click(...screen(h));
+  note(`a hydrogen of methane clicked with it: ${c.composition()}, with its cloud`, await shown() && c.composition() === 'CH₃I' && s.result.ok !== false && !status().classList.contains('error'));
+  await report('editor-5-iodomethane.png', c.snapshot());
+  for (const el of ['Pt', 'Xe', 'Au', 'Pb']) { $('edit-more').click(); [...d.querySelectorAll('#element-table button')].find((x) => x.dataset.v === el).click(); }
+  note(`the toolbar keeps the last three taken from the table: ${[...$('edit-element').children].map((x) => x.textContent).join(' ')}`, [...$('edit-element').children].map((x) => x.textContent).join(' ') === 'H C N O F P S Cl Xe Au Pb …');
+  click(...screen(ed.molecule().elements.indexOf('I')));
+  note(`the iodine clicked with lead, which has no usual number of bonds: ${c.composition()}`, await shown() && c.composition() === 'CH₃Pb' && !status().classList.contains('error'));
+  $('edit-cancel').click();
+  await until(() => !ed.active && !$('edit-open').inert);
+
   // ---- a molecule from SMILES, and one from PubChem (whose answers are played back here:
   // the check asks nothing of the outside world)
   const enter = () => $('find-text').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
@@ -215,7 +242,7 @@ try {
   $('find-text').value = 'Oc1ccccc1';
   $('find-build').click();
   note(`another SMILES replaces the molecule: ${c.composition()}`, await shown() && !$('find').open && c.composition() === 'C₆H₆O' && ed.molecule().bonds.filter((x) => x[2] === 2).length === 3);
-  await report('editor-5-phenol.png', c.snapshot());
+  await report('editor-6-phenol.png', c.snapshot());
   ed.undo();
   note('and that can be undone', await shown() && c.composition() === 'C₂H₅OH');
   $('edit-done').click();
