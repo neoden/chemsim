@@ -19,7 +19,7 @@
 // { type: 'relax-frame', session, done, converged, error?, positions, energy, gmax, steps, result }.
 import { createXtbEngine } from './xtb.js';
 import { Dynamics } from '../md.js';
-import { minimize } from '../relax.js';
+import { minimize, modelGuess } from '../relax.js';
 
 let xtb = null, xtbLoading = null;
 async function engine() {
@@ -156,7 +156,7 @@ async function onRelax(msg) {
     const r = xtb.compute({ numbers: msg.numbers, positions: x, charge: msg.charge, etemp: msg.etemp, unpaired: msg.unpaired, forces: true });
     if (!r.ok) { error = r.error; return { e: Infinity }; }
     return { e: r.energy, g: r.forces.map((f) => -f), r };
-  }, msg.positions, { gtol: RELAX_GTOL, maxIter: RELAX_STEPS });
+  }, msg.positions, { gtol: RELAX_GTOL, maxIter: RELAX_STEPS, guess: (x) => modelGuess(msg.numbers, x) });
   let sent = performance.now();
   for (;;) {
     const step = walk.next(), v = step.value, now = performance.now();

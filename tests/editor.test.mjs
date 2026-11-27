@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createXtbEngine } from '../app/src/engine/xtb.js';
-import { minimize } from '../app/src/relax.js';
+import { minimize, modelGuess, modelHessian } from '../app/src/relax.js';
 import * as E from '../app/src/editor.js';
 import { composition } from '../app/src/scene.js';
 import { BOHR_ANGSTROM, NUMBERS } from '../app/src/units.js';
@@ -35,7 +35,7 @@ function relax(m, unpaired) {
     calls++;
     const r = xtb.compute({ numbers, positions: x, charge: m.charge, etemp: 300, forces: true, orbitals: false, unpaired });
     return r.ok ? { e: r.energy, g: r.forces.map((f) => -f) } : { e: Infinity };
-  }, m.positions, { gtol: 5e-5, maxIter: 600 });
+  }, m.positions, { gtol: 5e-5, maxIter: 600, guess: (x) => modelGuess(numbers, x) });
   for (;;) { const s = walk.next(); if (s.done) return { ...s.value, calls, mol: { ...m, positions: Array.from(s.value.x) } }; }
 }
 const libraryEnergy = (key) => library.find((x) => x.key === key).energy;
@@ -145,5 +145,29 @@ for (const key of ['c2h4', 'c2h2', 'co2', 'h2co', 'hcn', 'c6h6', 'ch3cooh', 'n2'
   assert.throws(() => E.fromXYZ('Xx 0 0 0'), /not among/);
   assert.throws(() => E.fromXYZ('nothing here'), /No atoms/);
   ok(E.fromXYZ('3\nwater\nO 0 0 0\nH 0.96 0 0\nh -0.24 0.93 0').bonds.length === 2, 'XYZ with a header, any letter case; text without atoms and unknown elements are refused');
+}
+
+console.log('the model Hessian the relaxation starts from');
+{
+  // hexane as the editor built it; acetylene for the straight angles the model leaves out
+  for (const [name, m] of [['hexane', chain], ['acetylene', E.fromXYZ('C 0 0 0.6\nC 0 0 -0.6\nH 0 0 1.66\nH 0 0 -1.66')]]) {
+    const numbers = m.elements.map((el) => NUMBERS[el]), x = m.positions, nat = numbers.length, n = 3 * nat, H = modelHessian(numbers, x);
+    const times = (v) => Float64Array.from({ length: n }, (_, i) => { let t = 0; for (let j = 0; j < n; j++) t += H[i * n + j] * v[j]; return t; });
+    const largest = (v) => v.reduce((t, w) => Math.max(t, Math.abs(w)), 0);
+    // the molecule moved or turned as a whole: three shifts and three turns
+    let rigid = 0;
+    for (let p = 0; p < 3; p++) {
+      const q = (p + 1) % 3, r = (p + 2) % 3, shift = new Float64Array(n), turn = new Float64Array(n);
+      for (let a = 0; a < nat; a++) { shift[3 * a + p] = 1; turn[3 * a + q] = -x[3 * a + r]; turn[3 * a + r] = x[3 * a + q]; }
+      rigid = Math.max(rigid, largest(times(shift)), largest(times(turn)));
+    }
+    // one atom moved along its bond: the stiffness of a bond
+    const [i, j] = m.bonds[0], l = dist(m, i, j) / BOHR_ANGSTROM, pull = new Float64Array(n);
+    for (let p = 0; p < 3; p++) pull[3 * i + p] = (x[3 * i + p] - x[3 * j + p]) / l;
+    const stiff = times(pull).reduce((t, w, k) => t + w * pull[k], 0);
+    const G = modelGuess(numbers, x), back = times(G[0]).map((w, k) => w + 0.01 * G[0][k] - (k === 0 ? 1 : 0));
+    ok(rigid < 1e-12 && stiff > 0.3 && stiff < 2 && largest(back) < 1e-10,
+      `${name}: moving or turning it as a whole costs nothing (${rigid.toExponential(0)}), a bond is ${stiff.toFixed(2)} Eh/bohr² stiff, the guess is the inverse`);
+  }
 }
 console.log(`\n${checks} checks passed`);

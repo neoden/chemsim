@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createXtbEngine } from '../app/src/engine/xtb.js';
-import { minimize } from '../app/src/relax.js';
+import { minimize, modelGuess } from '../app/src/relax.js';
 import * as E from '../app/src/editor.js';
 import { parseSMILES, fromSMILES, toSMILES, isSMILES } from '../app/src/smiles.js';
 import { fromRecord, findCompound } from '../app/src/pubchem.js';
@@ -27,7 +27,7 @@ function relax(m) {
   const walk = minimize((x) => {
     const r = xtb.compute({ numbers, positions: x, charge: m.charge, etemp: 300, forces: true, orbitals: false, unpaired });
     return r.ok ? { e: r.energy, g: r.forces.map((f) => -f) } : { e: Infinity };
-  }, m.positions, { gtol: 5e-5, maxIter: 600 });
+  }, m.positions, { gtol: 5e-5, maxIter: 600, guess: (x) => modelGuess(numbers, x) });
   for (;;) { const s = walk.next(); if (s.done) return { ...s.value, mol: { ...m, positions: Array.from(s.value.x) } }; }
 }
 const fromLibrary = (key) => { const m = library.find((x) => x.key === key); return E.withBonds(m.elements, m.xyz.map((v) => v / BOHR_ANGSTROM), m.charge ?? 0); };

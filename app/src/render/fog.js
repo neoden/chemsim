@@ -211,13 +211,14 @@ o=vec4(pow(mix(vec3(0.006,0.007,0.012),c.rgb,c.a),vec3(1.0/2.2)),1.0);
 // per geometry and orbital; orbGrid = false: they are evaluated from the basis set at every
 // ray step. That is the costly part of a frame (some thirty exponentials a step for water,
 // more with every atom nearby), and what the grid replaces with one or two texture reads.
-const fragmentSource = (maxAo, maxAtoms, grid, orbGrid) => `#version 300 es
+const fragmentSource = (maxAo, grid, orbGrid) => `#version 300 es
 precision highp float;
 precision highp int;
 precision highp sampler2D;
 precision highp sampler3D;
 #define MAXAO ${maxAo}
-#define MAXAT ${maxAtoms}
+#define STRIDE ${STRIDE}
+#define NP ${MAX_STEPS / STRIDE + 2}
 out vec4 o;
 uniform vec2 uR;
 uniform vec3 uCam,uRt,uUp,uFw; // uCam.z: the camera's distance; the rest: its axes, see cameraBasis
@@ -254,8 +255,10 @@ float b=dot(ro,rd);
 float h=b*b-(dot(ro,ro)-uRb*uRb);
 vec3 col=vec3(0.0);
 float T=1.0;
-float tN[MAXAT];float TN[MAXAT];
-for(int k=0;k<uNA;k++){tN[k]=dot(texelFetch(uAtom,ivec2(k,0),0).xyz-ro,rd);TN[k]=1.0;}
+// How much light is left along the ray, kept for the nuclei drawn at the end: P[j] after
+// j*STRIDE ray steps, nd steps taken in all, the first at depth tq, dq apart. Tl: what is left
+// behind a cutting plane that lies past the last step.
+float P[NP];int nd=0;float tq=1e30,dq=1.0,Tl=1.0;bool late=false;
 float gf=mix(1.0,0.45,uGhost);
 // where the ray meets the cutting plane, and what the cut looks like there
 float dn=dot(rd,uPl.xyz),s0=dot(ro,uPl.xyz)-uPl.w;
@@ -283,6 +286,7 @@ t1=max(t1,t0);
 if(!pd&&tp<=t0){col+=T*pc.a*pc.rgb;T*=1.0-pc.a;pd=true;}
 float dt=(t1-t0)/float(uSteps);
 float t=t0+dt*ign(gl_FragCoord.xy);
+tq=t;dq=max(dt,1e-6);P[0]=T;
 float lp=-30.0,lb=-30.0;
 for(int i=0;i<uSteps;i++){
 vec3 p=ro+rd*t;
@@ -319,18 +323,25 @@ col+=T*a*(so*co+sb*cb+sv*cv)/max(s,1e-6);
 T*=1.0-a;
 lp=l;lb=lr;
 t+=dt;
-for(int k=0;k<uNA;k++)if(t<tN[k])TN[k]=T;
+nd=i+1;if(nd%STRIDE==0)P[nd/STRIDE]=T;
 if(!pd&&t>=tp){col+=T*pc.a*pc.rgb;T*=1.0-pc.a;pd=true;}
 if(T<0.01)break;
 }
-if(!pd){col+=T*pc.a*pc.rgb;T*=1.0-pc.a;for(int k=0;k<uNA;k++)if(tN[k]>tp)TN[k]=T;}
+P[nd/STRIDE+1]=T;
+if(!pd){col+=T*pc.a*pc.rgb;T*=1.0-pc.a;late=true;Tl=T;}
 }
 col+=T*bg;
 float dsz=0.00007*uCam.z*uCam.z;
 for(int k=0;k<uNA;k++){
 vec3 v=texelFetch(uAtom,ivec2(k,0),0).xyz-ro;
-float d2=dot(v,v)-tN[k]*tN[k];
-col+=vec3(1.0)*exp(-d2/dsz)*(0.25+0.75*TN[k]);
+float tn=dot(v,rd);
+float w=exp(-(dot(v,v)-tn*tn)/dsz);
+if(w<1e-5)continue; // this nucleus is not on this pixel
+// the light left in front of the nucleus: all of it before the first step
+float Tn=1.0,x=(tn-tq)/dq-1.0;
+if(late&&tn>tp)Tn=Tl;
+else if(x>0.0){x=min(x,float(nd))/float(STRIDE);int j=int(x);Tn=mix(P[j],P[j+1],x-float(j));}
+col+=vec3(w*(0.25+0.75*Tn));
 }
 o=vec4(pow(clamp(col,0.0,1.0),vec3(1.0/2.2)),1.0);
 }`;
@@ -338,6 +349,10 @@ o=vec4(pow(clamp(col,0.0,1.0),vec3(1.0/2.2)),1.0);
 const UNIFORMS = ['uR', 'uCam', 'uRt', 'uUp', 'uFw', 'uRb', 'uGhost', 'uBody', 'uNA', 'uNO', 'uSteps', 'uAtom', 'uShell', 'uPrim', 'uCoef', 'uOcc', 'uRho', 'uPsiA', 'uPsiB', 'uN', 'uCols', 'uPart',
   'uPl', 'uPlMode', 'uFrags', 'uPlField', 'uPlR', 'uC', 'uE1', 'uE2', 'uHalf', 'uRaw'];
 const UNITS = { uAtom: 0, uShell: 1, uPrim: 2, uCoef: 3, uOcc: 8 }; // texture units of the data textures
+// The ray march takes at most MAX_STEPS steps and notes the light left after every STRIDE-th
+// of them, for the nuclei. The notes are a small array on purpose: the shader used to keep a
+// value per atom and update all of them at every step, and past 128 atoms a frame took 250 ms.
+const MAX_STEPS = 240, STRIDE = 4;
 const GRID_SPACING = 0.18; // bohr, target voxel size of the body-density and orbital grids
 const bucket = (n, min) => { let b = min; while (b < n) b *= 2; return b; };
 
@@ -410,7 +425,7 @@ export class FogRenderer {
       gl.texStorage2D(gl.TEXTURE_2D, 1, raw ? gl.R32F : gl.RGBA8, size, size);
       sl.key = key;
     }
-    const { prog, U } = this._program(bucket(s.nao, 16), 0, 'slice');
+    const { prog, U } = this._program(bucket(s.nao, 16), 'slice');
     gl.useProgram(prog);
     this._bind(U);
     gl.uniform3fv(U.uC, center);
@@ -446,8 +461,8 @@ export class FogRenderer {
   // kind: 'grid' (fills the density grid), 'orbgrid' (fills the orbital grid), 'slice' (the
   // flat cut), or the ray march: 'march' followed by 'b' if the body is read from its grid
   // and by 'o' if the orbital is
-  _program(maxAo, maxAtoms, kind) {
-    const key = `${kind}/${maxAo}/${maxAtoms}`;
+  _program(maxAo, kind) {
+    const key = `${kind}/${maxAo}`;
     let p = this.programs.get(key);
     if (p) return p;
     const gl = this.gl;
@@ -461,7 +476,7 @@ export class FogRenderer {
     const prog = gl.createProgram();
     gl.attachShader(prog, shader(gl.VERTEX_SHADER, VS));
     gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, kind === 'grid' ? gridSource(maxAo) : kind === 'orbgrid' ? orbitalGridSource(maxAo) : kind === 'slice' ? sliceSource(maxAo)
-      : fragmentSource(maxAo, maxAtoms, kind.includes('b', 5), kind.includes('o', 5))));
+      : fragmentSource(maxAo, kind.includes('b', 5), kind.includes('o', 5))));
     gl.linkProgram(prog);
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error('The shader failed to build: ' + gl.getProgramInfoLog(prog));
     p = { prog, U: {} };
@@ -473,7 +488,7 @@ export class FogRenderer {
   // the ray march for the scene: with the orbital from its grid, or exact
   _march(orbGrid) {
     const s = this.scene;
-    return this._program(bucket(s.nao, 16), bucket(s.nat, 8), `march${this.bodyGrid ? 'b' : ''}${orbGrid ? 'o' : ''}`);
+    return this._program(bucket(s.nao, 16), `march${this.bodyGrid ? 'b' : ''}${orbGrid ? 'o' : ''}`);
   }
 
   _upload(name, width, height, internal, format, data) {
@@ -532,7 +547,7 @@ export class FogRenderer {
       // same framing as the reference demo; more ray steps only for larger molecules
       distance: 2.3 * (mr + 2.6),
       planeRadius: planeRadius ?? mr + 2.4, // radius of the drawn cutting disc and half-width of the flat plot
-      steps: Math.max(120, Math.min(240, Math.round(120 * rb / 8.5))),
+      steps: Math.max(120, Math.min(MAX_STEPS, Math.round(120 * rb / 8.5))),
       ghost: 0,
       selected: 0,
       // the grids are filled when a frame first needs them: dynamics may bring several
@@ -592,7 +607,7 @@ export class FogRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, sh.fbo);
     const usable = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
     if (usable) {
-      const { prog, U } = this._program(bucket(s.nao, 16), 0, kind);
+      const { prog, U } = this._program(bucket(s.nao, 16), kind);
       gl.useProgram(prog);
       this._bind(U);
       gl.uniform1f(U.uN, n);
