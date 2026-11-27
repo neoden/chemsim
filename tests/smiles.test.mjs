@@ -45,8 +45,11 @@ for (const [text, want, bondOrders, charge = 0] of [
   const m = fromSMILES(text);
   ok(formula(m) === want && orders(m) === bondOrders && m.charge === charge, `${text}: ${want}${charge ? `, charge ${charge}` : ''}${bondOrders ? `, bond orders ${bondOrders}` : ''}`);
 }
+// an alkane of n carbons has 3n + 2 atoms: the shortest chain past the editor's limit
+const TOO_LONG = 'C'.repeat(Math.ceil((E.MAX_ATOMS - 1) / 3));
+const TOO_MANY = new RegExp(`up to ${E.MAX_ATOMS} atoms; this one has \\d+`);
 for (const [text, reason] of [['C[U]', /not among the 86/], ['c1ccnc1', /\[nH\]/], ['C(C', /not closed/], ['C1CC', /never closed/], ['water', /position 1/], ['', /empty/],
-  ['C=', /leads nowhere/], ['C$C', /quadruple/], ['[Og]', /not among/], ['C11', /bonded twice/], ['H2O', /\[H\]/], ['C'.repeat(33), /up to 100 atoms; this one has 101/]]) {
+  ['C=', /leads nowhere/], ['C$C', /quadruple/], ['[Og]', /not among/], ['C11', /bonded twice/], ['H2O', /\[H\]/], [TOO_LONG, TOO_MANY]]) {
   assert.throws(() => fromSMILES(text), reason);
   checks++;
 }
@@ -146,8 +149,8 @@ console.log('PubChem');
   await assert.rejects(findCompound('offline', { fetch }), /cannot be reached/);
   await assert.rejects(findCompound('  ', { fetch }), /Type the name/);
   ok(true, 'an unknown name, a busy server, no connection and an empty field each give their own message');
-  const big = { atoms: { aid: Array.from({ length: 101 }, (_, k) => k + 1), element: new Array(101).fill(6) }, coords: [{ aid: [], conformers: [{ x: [], y: [], z: [] }] }] };
-  assert.throws(() => fromRecord(big), /up to 100 atoms; this one has 101/);
+  const big = { atoms: { aid: Array.from({ length: E.MAX_ATOMS + 1 }, (_, k) => k + 1), element: new Array(E.MAX_ATOMS + 1).fill(6) }, coords: [{ aid: [], conformers: [{ x: [], y: [], z: [] }] }] };
+  assert.throws(() => fromRecord(big), TOO_MANY);
   assert.throws(() => fromRecord({ ...record.PC_Compounds[0], atoms: { ...record.PC_Compounds[0].atoms, element: [92, 6, 6, 1, 1, 1, 1, 1, 1] } }), /number 92/);
   ok(true, 'a compound that is too large or has an element past radon is refused');
 }

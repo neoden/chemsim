@@ -17,7 +17,7 @@ import { NUMBERS, VALENCE, COVALENT, BOHR_ANGSTROM } from './units.js';
 // the usual number of bonds of an element: how many hydrogens a new atom arrives with.
 // Elements that are not listed arrive bare, and nothing is added to or taken from them.
 export const BONDS = { H: 1, B: 3, C: 4, N: 3, O: 2, F: 1, Si: 4, P: 3, S: 2, Cl: 1, Br: 1, I: 1 };
-export const MAX_ATOMS = 100;
+export const MAX_ATOMS = 10000;
 
 const SHORTER = [0, 1, 0.87, 0.78]; // a double and a triple bond against a single one
 const radius = (el) => COVALENT[NUMBERS[el]] / BOHR_ANGSTROM;
