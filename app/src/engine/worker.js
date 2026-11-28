@@ -2,7 +2,8 @@
 //
 // Engine interface. Request: { numbers, positions (bohr, flat 3n),
 // charge, etemp (K), forces, unpaired (number of unpaired electrons) }. Result: { ok, converged, error?, energy (Eh), forces (Eh/bohr)
-// or null, eps (Eh), occ, coeff (nmo x nao, orbital by orbital), nao, nmo, shells, iterations }.
+// or null, charges, dipoles (3 per atom), quadrupoles (6 per atom: xx, xy, yy, xz, yz, zz, traceless; the
+// Mulliken multipoles of the atoms), eps (Eh), occ, coeff (nmo x nao, orbital by orbital), nao, nmo, shells, iterations }.
 // A shell is { atom, l, alpha[], coeff[] }: the radial part is sum_k coeff_k exp(-alpha_k r^2),
 // multiplied by 1 for l = 0, by x, y, z (in this AO order) for l = 1, and by the five
 // quadratic polynomials listed in orbitals.js for l = 2.
@@ -13,6 +14,7 @@
 //   { type: 'md', cmd: 'run' | 'pause' | 'step' | 'stop' }
 //   { type: 'md', cmd: 'set', params?, etemp?, speed?, unpaired?, grab? }   grab: { atom, target | toAtom + rest, piece? } or null, see md.js
 //   { type: 'md', cmd: 'move', positions, wallRadius }           nuclei placed by hand
+//   { type: 'md', cmd: 'drop', keep, charge, unpaired }          the run goes on with the atoms `keep` alone; the frame that answers carries `kept`
 //   { type: 'relax', cmd: 'start', session, numbers, positions, charge, etemp, unpaired }   geometry optimization
 //   { type: 'relax', cmd: 'stop' }
 // Messages out: compute results (with the request's id), { type: 'md-frame', ... } and
@@ -82,11 +84,10 @@ function fail() {
 async function mdInit(msg) {
   const xtb = await engine();
   const session = msg.session;
-  const state = { speed: msg.speed, running: false, etemp: msg.etemp, unpaired: msg.unpaired, session, rate: 0 };
-  state.dyn = new Dynamics({
-    numbers: msg.numbers, positions: msg.positions, seed: msg.seed, wallRadius: msg.wallRadius,
-    force: (x, orbitals) => xtb.compute({ numbers: msg.numbers, positions: x, charge: msg.charge, etemp: state.etemp, unpaired: state.unpaired, forces: true, orbitals, accuracy: MD_ACCURACY }),
-  });
+  const state = { speed: msg.speed, running: false, etemp: msg.etemp, unpaired: msg.unpaired, numbers: msg.numbers, charge: msg.charge, session, rate: 0 };
+  // the atoms and their charge may change during the run: see 'drop'
+  state.force = (x, orbitals) => xtb.compute({ numbers: state.numbers, positions: x, charge: state.charge, etemp: state.etemp, unpaired: state.unpaired, forces: true, orbitals, accuracy: MD_ACCURACY });
+  state.dyn = new Dynamics({ numbers: msg.numbers, positions: msg.positions, seed: msg.seed, wallRadius: msg.wallRadius, force: state.force });
   Object.assign(state.dyn.params, msg.params);
   md = state;
   if (!state.dyn.init(true)) return fail();
@@ -116,10 +117,36 @@ async function mdLoop() {
     count += done;
     if (start - since > 500) { md.rate = count / (performance.now() - since) * 1000; count = 0; since = performance.now(); }
     if (failed) { fail(); break; }
-    if (done) frame();
+    if (done) { follow(); frame(); }
     await sleep(Math.max(0, TICK - (performance.now() - start)));
   }
   looping = false;
+}
+
+// Without a wall nothing is tied to a place, and the scene is kept with the middle of its
+// nuclei at the origin, which is what the page turns the view around: however fast it drifts.
+// Where that middle jumps (the wall has just been taken away, or a piece has been left out),
+// it is let glide there: md.lag is how far it still has to go, and shrinks with every frame.
+function follow() {
+  if (Number.isFinite(md.dyn.params.wallRadius)) { md.lag = null; return; }
+  md.lag = (md.lag ?? md.dyn.centre()).map((v) => (Math.abs(v) < 1e-3 ? 0 : 0.92 * v));
+  md.dyn.centreAt(md.lag);
+}
+
+// What has flown away is left out: the run goes on with the atoms `keep` alone.
+function drop(msg) {
+  const before = { numbers: md.numbers, charge: md.charge, unpaired: md.unpaired };
+  const dyn = md.dyn.kept(msg.keep, md.force);
+  Object.assign(md, { numbers: dyn.numbers, charge: msg.charge, unpaired: msg.unpaired });
+  if (!dyn.init(true)) {
+    // the rest cannot be solved on its own: everything stays as it was
+    Object.assign(md, before);
+    md.dyn.error = dyn.error;
+    return fail();
+  }
+  md.dyn = dyn;
+  md.lag = dyn.centre(); // the middle of what is left is somewhere else: no jump
+  frame({ kept: msg.keep, charge: msg.charge, unpaired: msg.unpaired });
 }
 
 let initializing = Promise.resolve();
@@ -129,7 +156,8 @@ async function onMd(msg) {
   if (!md || !md.dyn.ready || msg.session !== md.session) return;
   if (msg.cmd === 'run') { md.running = true; mdLoop(); }
   else if (msg.cmd === 'pause') { md.running = false; frame(); }
-  else if (msg.cmd === 'step') { md.running = false; if (md.dyn.step(true)) frame(); else fail(); }
+  else if (msg.cmd === 'step') { md.running = false; if (md.dyn.step(true)) { follow(); frame(); } else fail(); }
+  else if (msg.cmd === 'drop') drop(msg);
   else if (msg.cmd === 'stop') { md.running = false; md = null; }
   else if (msg.cmd === 'set') {
     if (msg.params) Object.assign(md.dyn.params, msg.params);

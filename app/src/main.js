@@ -6,8 +6,9 @@ import { drawEnergy } from './chart.js';
 import { buildScene, translated, rotated, pieces, composition } from './scene.js';
 import { createEditMode, savedMolecules } from './editmode.js';
 import { EXPERIMENTS } from './experiments.js';
-import { fixSigns, frontier, overlapMatrix, followOrbitals } from './orbitals.js';
-import { BOHR_ANGSTROM, HARTREE_EV, NUMBERS, COVALENT } from './units.js';
+import { fixSigns, frontier, firstShown, overlapMatrix, followOrbitals } from './orbitals.js';
+import { chargeSites, potentialScale, ESP_FIXED_SCALE } from './esp.js';
+import { BOHR_ANGSTROM, HARTREE_EV, NUMBERS, COVALENT, VALENCE } from './units.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -22,6 +23,12 @@ const state = {
   unpaired: 0, // number of unpaired electrons in the scene (set from the scene, changeable in the settings)
   experiment: null, // the chosen entry of EXPERIMENTS, until the molecules are changed by hand
   body: params.get('body') !== '0',
+  // what is drawn: the selected orbital; 'esp', the electrostatic potential on the density
+  // surface; 'equi', the surfaces where the potential is plus and minus equiVolts
+  view: ['esp', 'equi'].includes(params.get('view')) ? params.get('view') : 'orbital',
+  equiVolts: Math.max(0.1, Math.min(10, +params.get('ev') || 1)),
+  espRange: params.get('scale') === 'own' ? 'own' : 'fixed', // the colours of the potential: on the scale that is the same for every molecule, or stretched to the scene's own
+  espScale: 0.08, // Eh per unit charge at which the colours are full when stretched to the scene; set for every new scene
   wobble: params.has('wobble') ? params.get('wobble') === '1' : !reduceMotion,
   selected: -1,
   result: null,
@@ -41,7 +48,10 @@ const state = {
     dt: +(params.get('dt') ?? 0.5), // fs
     tau: 100, // fs, coupling time of the thermostat
     etemp: 300, // K, electronic temperature
+    wall: true, // the soft wall around the scene during dynamics
+    wallRadius: null, // its radius set by hand, angstrom; null: by the size of the scene, see wallFor
   },
+  // wallRadius: of the wall, bohr, also while it is switched off; extent: the radius the nuclei are drawn within
   md: null, // { session, running, wallRadius, extent, planeRadius, time, steps, epot, ekin, etot, temperature, rate }
   frames: 0, // dynamics frames shown so far
 };
@@ -153,21 +163,23 @@ async function recompute() {
   state.result = res;
   state.molecule = scene;
   try {
-    const view = renderer.setScene(Float32Array.from(scene.positions), res, { fragments: scene.fragments });
-    state.camera.distance = view.distance;
+    renderer.setScene(Float32Array.from(scene.positions), res, { fragments: scene.fragments });
+    refreshPotential(true);
+    state.camera.distance = framing();
   } catch (e) {
     setStatus(e.message, true);
     return;
   }
-  const { homo, lumo } = frontier(res);
+  const { lumo } = frontier(res);
   const want = params.get('orb');
-  state.selected = want === 'lumo' ? lumo : want && want !== 'homo' ? Math.min(res.nmo - 1, Math.max(0, +want)) : homo;
+  state.selected = want === 'lumo' && lumo >= 0 ? lumo : want && !/^(homo|lumo)$/.test(want) ? Math.min(res.nmo - 1, Math.max(0, +want)) : firstShown(res);
   renderer.select(state.selected);
-  if (scene.key !== lastMolKey) { lastMolKey = scene.key; setPlane(null); cancelPicking(); }
+  if (scene.key !== lastMolKey) { lastMolKey = scene.key; setPlane(null); cancelPicking(); state.settings.wallRadius = null; } // a wall set by hand was for the other scene
   for (const el of document.querySelectorAll('.two-only')) el.hidden = scene.nFragments < 2;
   buildLabels();
   buildLevels();
   buildInfo();
+  refreshView();
   setStatus(sceneNote());
   dirty = true;
   refreshPlane();
@@ -187,6 +199,7 @@ function showMoved(positions, res) {
     fragments: state.molecule.fragments, planeRadius: md ? md.planeRadius : renderer.scene.planeRadius, extent: md?.extent,
   });
   renderer.select(state.selected);
+  refreshPotential();
   updateLevels();
   refreshPlane();
   buildInfo();
@@ -287,6 +300,45 @@ function selectOrbital(m) {
   renderer.select(m);
   markLevels();
   refreshPlane();
+  dirty = true;
+}
+
+// the potential at which the colours are full now
+const espFull = () => (state.espRange === 'own' ? state.espScale : ESP_FIXED_SCALE);
+// the camera distance that frames what is drawn
+const framing = () => renderer.scene[{ esp: 'espDistance', equi: 'equiDistance' }[state.view] ?? 'distance'];
+
+// The charges the potential is drawn from, for what is in the scene now: worked out when the
+// potential is on the screen, or (rescale) for a new scene, which also sets the scale of the
+// colours. The scale then stays while the nuclei of the scene move.
+function refreshPotential(rescale = false) {
+  if (!state.result || (!rescale && state.view === 'orbital')) return;
+  const m = state.molecule, sites = chargeSites(m.numbers, m.positions, state.result);
+  if (rescale) state.espScale = potentialScale(m.numbers, m.positions, sites);
+  renderer.setPotential(sites);
+  dirty = true;
+}
+
+// pushes what is drawn (orbital or potential) to its switch and to the legend
+function refreshView() {
+  const esp = state.view === 'esp', equi = state.view === 'equi';
+  for (const b of $('view-mode').children) b.setAttribute('aria-pressed', String(b.dataset.v === state.view));
+  $('body').disabled = esp || equi; // the surface of the cloud is drawn in place of the body
+  $('legend-orbital').hidden = esp || equi;
+  $('legend-esp').hidden = !esp;
+  $('legend-equi').hidden = !equi;
+  $('equi-field').hidden = !equi;
+  // the slider runs from 0.1 to 10 V, evenly in the logarithm
+  const ev = state.equiVolts, shown = ev.toFixed(ev < 1 ? 2 : 1);
+  $('equi-value').value = Math.round(50 * Math.log10(ev / 0.1));
+  $('equi-out').textContent = `±${shown} V`;
+  $('equi-neg').textContent = `−${shown} V`;
+  $('equi-pos').textContent = `+${shown} V`;
+  $('esp-range-field').hidden = !esp;
+  for (const b of $('esp-range').children) b.setAttribute('aria-pressed', String(b.dataset.v === state.espRange));
+  const volts = espFull() * HARTREE_EV;
+  $('esp-min').textContent = `−${volts.toFixed(volts < 1 ? 2 : 1)} V`;
+  $('esp-max').textContent = `+${volts.toFixed(volts < 1 ? 2 : 1)} V`;
   dirty = true;
 }
 
@@ -414,10 +466,19 @@ function resize() {
 function render(ts, exact = false) {
   const wob = state.wobble && !drag && !edit.active;
   const camera = wob ? turnCamera(state.camera, 0.22 * Math.sin(ts * 0.0008), 0) : { ...state.camera };
-  if (state.result && !(edit.active && !edit.cloud)) renderer.draw(camera, { body: state.body, exact }); else renderer.clear();
+  if (state.result && !(edit.active && !edit.cloud)) renderer.draw(camera, { body: state.body, exact, view: state.view, espScale: state.view === 'equi' ? state.equiVolts / HARTREE_EV : espFull() }); else renderer.clear();
   placeLabels(camera);
   shownCamera = camera;
   if (edit.active) edit.draw(camera);
+  // the wall: a sphere about the centre, which is a circle on the screen. Shown while there
+  // is a run for it to act in, or while its setting is in sight.
+  {
+    const R = state.settings.wall && state.result && !edit.active && (state.md || $('md-settings').open) ? (state.md ? state.md.wallRadius : wallFor(state.molecule.positions)) : 0;
+    const D = camera.distance, h = canvas.clientHeight, c = $('wall-ring').firstElementChild;
+    c.setAttribute('r', R && D > 1.02 * R ? 2.3 * h / 2 * R / Math.sqrt(D * D - R * R) : 0);
+    c.setAttribute('cx', canvas.offsetLeft + canvas.clientWidth / 2);
+    c.setAttribute('cy', canvas.offsetTop + h / 2);
+  }
   // the spring between the held nucleus and the cursor
   const line = $('grab-line'), hold = drag?.mode === 'hold' && drag.cursor;
   line.classList.toggle('on', !!hold);
@@ -445,7 +506,7 @@ function frame(ts) {
     dirty = false;
     overlay = false;
     drawnAt = ts;
-    refined = !renderer.orbGrid; // without the grid the frame is exact already
+    refined = !renderer.orbGrid || state.view !== 'orbital'; // without the grid the frame is exact already; the potential has no exact frame
   } else if (!refined && !drag && !state.md?.running && ts - drawnAt > STILL_MS) {
     // nothing has changed for a while: the same frame once more, exactly
     last = 0;
@@ -480,6 +541,9 @@ function refreshMd() {
   $('md-speed-out').textContent = st.speed > 0 ? `${st.speed} fs/s` : 'max';
   $('md-thermo').checked = st.thermostat;
   $('md-dt').value = st.dt; $('md-tau').value = st.tau; $('md-etemp').value = st.etemp;
+  $('md-wall').checked = st.wall;
+  $('md-wall-r').disabled = !st.wall;
+  if (state.molecule) $('md-wall-r').value = ((md ? md.wallRadius : wallFor(state.molecule.positions)) * BOHR_ANGSTROM).toFixed(1);
   // unpaired electrons: only the values of the right parity make sense
   const pick = $('unpaired'), n = state.molecule?.electrons ?? 0;
   pick.textContent = '';
@@ -487,11 +551,97 @@ function refreshMd() {
   pick.value = state.unpaired;
 }
 
-// the soft wall sits just inside what the camera frames for the molecule at rest
-function wallFor(p) {
+// how far from the centre the farthest nucleus is, bohr
+function farthest(p) {
   let mr = 0;
   for (let k = 0; k < p.length; k += 3) mr = Math.max(mr, Math.hypot(p[k], p[k + 1], p[k + 2]));
-  return mr + 2.5;
+  return mr;
+}
+// The radius of the soft wall for nuclei at p, bohr: the one set by hand, but not inside the
+// nuclei; otherwise just inside what the camera frames for the molecule at rest.
+function wallFor(p) {
+  const set = state.settings.wallRadius;
+  return set ? Math.max(set / BOHR_ANGSTROM, farthest(p) + 0.5) : farthest(p) + 2.5;
+}
+// what the dynamics is told: no wall is a wall infinitely far
+const wallSent = () => (state.settings.wall ? state.md.wallRadius : Infinity);
+// the wall of the running session has changed: tell the dynamics, keep the drawn region around it
+function wallChanged() {
+  const md = state.md;
+  if (md) {
+    if (state.settings.wall) md.extent = md.wallRadius + 1;
+    engine.md('set', { session: md.session, params: { wallRadius: wallSent() } });
+  }
+  refreshMd();
+  dirty = true;
+}
+// Without the wall a piece that comes off flies away for good. The scene glides after what is
+// left (the worker keeps it about the origin), the camera is not touched, and a piece that is
+// DROP bohr from everything else is taken out of the run.
+const DROP = 10 / BOHR_ANGSTROM;
+function followPieces(f) {
+  const md = state.md;
+  md.extent = Math.max(md.extent, 1.3 * (farthest(f.positions) + 1)); // only the region that is drawn; the zoom stays
+  if (md.dropping || md.keepAll || !f.result?.coeff) return;
+  const m = state.molecule, n = m.numbers.length, p = f.positions, parts = pieces({ ...m, positions: p });
+  if (parts.count < 2) return;
+  // pieces closer than DROP to one another stay together; the largest such group is what is kept
+  const group = Array.from({ length: parts.count }, (_, k) => k);
+  const find = (k) => (group[k] === k ? k : (group[k] = find(group[k])));
+  for (let i = 0; i < n; i++) for (let j = 0; j < i; j++) {
+    if (parts.piece[i] !== parts.piece[j] && Math.hypot(p[3 * i] - p[3 * j], p[3 * i + 1] - p[3 * j + 1], p[3 * i + 2] - p[3 * j + 2]) < DROP) group[find(parts.piece[i])] = find(parts.piece[j]);
+  }
+  const size = new Map();
+  for (let i = 0; i < n; i++) size.set(find(parts.piece[i]), (size.get(find(parts.piece[i])) ?? 0) + 1);
+  if (size.size < 2) return;
+  const best = [...size].reduce((a, b) => (b[1] > a[1] ? b : a))[0]; // of equal ones, the one with the first atom
+  const keep = [], gone = [];
+  for (let i = 0; i < n; i++) (find(parts.piece[i]) === best ? keep : gone).push(i);
+  // The charge that leaves: the electrons the engine counts on those atoms, to a whole number.
+  // The unpaired electrons that stay: the spin the orbitals put on the atoms kept, to the
+  // nearest number of the right parity.
+  const r = f.result, charge = m.charge - Math.round(gone.reduce((q, i) => q + r.charges[i], 0));
+  const electrons = keep.reduce((e, i) => e + VALENCE[m.numbers[i]], 0) - charge;
+  let spin = 0;
+  if (state.unpaired) {
+    const S = overlapMatrix(r.shells, p), stays = new Uint8Array(n), atomOf = [];
+    for (const i of keep) stays[i] = 1;
+    for (const sh of r.shells) for (let k = 0; k < 2 * sh.l + 1; k++) atomOf.push(sh.atom);
+    for (let o = 0; o < r.nmo; o++) {
+      const w = 2 * r.occAlpha[o] - r.occ[o];
+      if (Math.abs(w) < 1e-9) continue;
+      for (let i = 0; i < r.nao; i++) {
+        if (!stays[atomOf[i]]) continue;
+        let t = 0;
+        for (let j = 0; j < r.nao; j++) t += S[i * r.nao + j] * r.coeff[o * r.nao + j];
+        spin += w * r.coeff[o * r.nao + i] * t;
+      }
+    }
+  }
+  let unpaired = electrons % 2;
+  while (unpaired + 2 <= electrons && Math.abs(unpaired + 2 - Math.abs(spin)) < Math.abs(unpaired - Math.abs(spin))) unpaired += 2;
+  md.dropping = pretty(composition({ elements: gone.map((i) => m.elements[i]), positions: Float64Array.from(gone.flatMap((i) => [p[3 * i], p[3 * i + 1], p[3 * i + 2]])) }));
+  engine.md('drop', { session: md.session, keep, charge, unpaired });
+}
+
+// the worker has left out what flew away: the scene is now the atoms f.kept
+function applyDrop(f) {
+  const m = state.molecule, md = state.md, keep = f.kept, fragments = Uint8Array.from(keep, (i) => m.fragments[i]);
+  const two = fragments.includes(0) && fragments.includes(1), numbers = keep.map((i) => m.numbers[i]);
+  state.molecule = {
+    ...m, elements: keep.map((i) => m.elements[i]), numbers, positions: f.positions, charge: f.charge,
+    fragments: two ? fragments : new Uint8Array(keep.length), nFragments: two ? 2 : 1,
+    electrons: numbers.reduce((e, z) => e + VALENCE[z], 0) - f.charge,
+  };
+  state.unpaired = f.unpaired;
+  state.result = null; // the orbitals of the smaller scene are new ones
+  for (const k of ['t', 'etot', 'epot']) md.history[k] = []; // its energy is another energy
+  cancelPicking();
+  drag = null;
+  buildLabels();
+  for (const el of document.querySelectorAll('.two-only')) el.hidden = !two;
+  setStatus(`${md.dropping} has flown 10 Å away from the rest and is taken out of the scene. “Reset” brings everything back.`);
+  md.dropping = null;
 }
 
 function mdStart() {
@@ -503,7 +653,7 @@ function mdStart() {
   };
   engine.md('init', {
     session: state.md.session, numbers: state.molecule.numbers, positions: p, charge: state.molecule.charge,
-    etemp: state.settings.etemp, unpaired: state.unpaired, params: mdParams(), speed: state.settings.speed, wallRadius,
+    etemp: state.settings.etemp, unpaired: state.unpaired, params: mdParams(), speed: state.settings.speed, wallRadius: wallSent(),
     seed: params.has('seed') ? +params.get('seed') : (Math.random() * 2 ** 31) | 0, thermalize: true,
   });
 }
@@ -528,12 +678,14 @@ engine.onFrame = (f) => {
   const running = f.steps === 0 && !f.error ? md.running : f.running, changed = running !== md.running;
   md.running = running;
   if (f.error) {
+    if (md.dropping) { md.dropping = null; md.keepAll = true; } // what is left cannot be solved alone: nothing is taken out in this run
     setStatus(f.converged === false
       ? `The electronic problem did not converge (${f.error}). The dynamics has been stopped: it cannot go on with unconverged forces. This usually means that atoms came too close together or that an occupied and an empty level have almost the same energy. Raise the electronic temperature under “Settings” (to 1500–3000 K, say) and press “Start” again, or press “Reset”.`
       : `Calculation error: ${f.error}. The dynamics has been stopped.`, true);
     refreshMd();
     return;
   }
+  if (f.kept) applyDrop(f);
   Object.assign(md, { time: f.time, steps: f.steps, epot: f.epot, ekin: f.ekin, etot: f.etot, temperature: f.temperature, rate: f.rate });
   const hist = md.history;
   if (!hist.t.length || f.time > hist.t[hist.t.length - 1]) {
@@ -541,7 +693,9 @@ engine.onFrame = (f) => {
     if (hist.t.length > 1500) for (const k of ['t', 'etot', 'epot']) hist[k] = hist[k].filter((_, i) => i % 2 === 0); // keep it light
   }
   drawEnergy($('md-chart'), hist);
+  if (!state.settings.wall) followPieces(f);
   if (f.result?.coeff) { f.result.ms = 0; showMoved(f.positions, f.result); }
+  if (f.kept) { selectOrbital(firstShown(state.result)); refreshMd(); }
   buildInfo();
   if (changed) refreshMd();
   state.frames++;
@@ -576,6 +730,14 @@ $('body').checked = state.body;
 $('wobble').checked = state.wobble;
 $('body').addEventListener('change', (e) => { state.body = e.target.checked; dirty = true; });
 $('wobble').addEventListener('change', (e) => { state.wobble = e.target.checked; dirty = true; });
+for (const b of $('view-mode').children) b.addEventListener('click', () => {
+  if (b.dataset.v === state.view) return;
+  state.view = b.dataset.v; // the camera stays where it is: the views are compared at one zoom
+  refreshPotential();
+  refreshView();
+});
+$('equi-value').addEventListener('input', (e) => { state.equiVolts = 0.1 * 10 ** (+e.target.value / 50); refreshView(); });
+for (const b of $('esp-range').children) b.addEventListener('click', () => { state.espRange = b.dataset.v; refreshView(); });
 $('about-open').addEventListener('click', () => $('about').showModal());
 
 $('md-run').addEventListener('click', () => mdCommand(state.md?.running ? 'pause' : 'run'));
@@ -603,12 +765,31 @@ for (const [id, key, lo, hi] of [['md-dt', 'dt', 0.05, 2], ['md-tau', 'tau', 5, 
   });
 }
 
+$('md-wall').addEventListener('change', (e) => {
+  state.settings.wall = e.target.checked;
+  // put back around pieces that have gone far, the wall must not slam them inwards
+  if (state.md && state.settings.wall) state.md.wallRadius = Math.max(state.md.wallRadius, farthest(state.molecule.positions) + 2.5);
+  wallChanged();
+});
+$('md-wall-r').addEventListener('change', (e) => {
+  const v = +e.target.value;
+  if (Number.isFinite(v) && v > 0) {
+    state.settings.wallRadius = Math.min(30, v);
+    if (state.md) state.md.wallRadius = wallFor(state.molecule.positions);
+    // a wall asked for is a wall to be seen: the camera backs away until its circle is in the picture
+    const R = state.md ? state.md.wallRadius : wallFor(state.molecule.positions);
+    state.camera.distance = Math.max(state.camera.distance, 2.6 * R);
+  }
+  wallChanged();
+});
+$('md-settings').addEventListener('toggle', () => { dirty = true; }); // the wall is shown while the settings are open
+
 $('unpaired').addEventListener('change', (e) => {
   state.unpaired = +e.target.value;
   if (state.md) {
     // the running session goes on with the new spin state, from the same nuclei
     engine.md('set', { session: state.md.session, unpaired: state.unpaired });
-    engine.md('move', { session: state.md.session, positions: state.molecule.positions, wallRadius: state.md.wallRadius });
+    engine.md('move', { session: state.md.session, positions: state.molecule.positions, wallRadius: wallSent() });
   } else recomputeMoved(state.molecule.positions);
   buildInfo();
 });
@@ -660,11 +841,14 @@ async function showEdited(scene, { result, follow } = {}) {
   }
   const prev = state.result, same = follow && prev && prev.nao === res.nao && prev.nmo === res.nmo;
   if (same) state.selected = followOrbitals(prev, res, overlapMatrix(res.shells, scene.positions), state.selected);
-  else { fixSigns(res); state.selected = frontier(res).homo; }
+  else { fixSigns(res); state.selected = firstShown(res); }
   state.result = res;
   try {
-    const view = renderer.setScene(Float32Array.from(scene.positions), res);
-    if (view.distance > state.camera.distance) state.camera.distance = view.distance;
+    renderer.setScene(Float32Array.from(scene.positions), res);
+    // a molecule being built gets its scale anew whenever its atoms change, not while they only move
+    refreshPotential(!same);
+    if (!same) refreshView();
+    if (framing() > state.camera.distance) state.camera.distance = framing();
   } catch (e) {
     setStatus(e.message, true);
     return false;
@@ -775,8 +959,8 @@ function placeNuclei(positions) {
   if (!state.md) return recomputeMoved(positions);
   state.molecule = { ...state.molecule, positions };
   state.md.wallRadius = Math.max(state.md.wallRadius, wallFor(positions));
-  state.md.extent = state.md.wallRadius + 1;
-  engine.md('move', { session: state.md.session, positions, wallRadius: state.md.wallRadius });
+  state.md.extent = Math.max(state.md.extent, state.md.wallRadius + 1);
+  engine.md('move', { session: state.md.session, positions, wallRadius: wallSent() });
   dirty = true;
 }
 
@@ -856,8 +1040,16 @@ canvas.addEventListener('pointerup', endDrag);
 canvas.addEventListener('pointercancel', endDrag);
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
-  const base = renderer.scene?.distance ?? 10;
-  state.camera.distance = Math.max(0.5 * base, Math.min(2.5 * base, state.camera.distance * Math.exp(e.deltaY * 0.001)));
+  // with Ctrl, among the surfaces of equal potential: the wheel changes their value (up: higher)
+  if (e.ctrlKey && state.view === 'equi') {
+    state.equiVolts = Math.max(0.1, Math.min(10, state.equiVolts * Math.exp(-e.deltaY * 0.001)));
+    refreshView();
+    return;
+  }
+  const base = renderer.scene ? framing() : 10;
+  // as far out as it takes to see the whole region of a run: the wall, or the pieces flying apart without it
+  const out = Math.max(2.5 * base, 2.6 * (state.md?.extent ?? 0));
+  state.camera.distance = Math.max(0.5 * base, Math.min(out, state.camera.distance * Math.exp(e.deltaY * 0.001)));
   dirty = true;
 }, { passive: false });
 window.addEventListener('keydown', (e) => {
@@ -880,11 +1072,12 @@ window.chemsim = {
   composition: () => pretty(composition(state.molecule)),
   md: { run: () => mdCommand('run'), pause: () => mdCommand('pause'), step: () => mdCommand('step'), reset: () => { mdStop(); return recompute(); } },
   // field values on the cut (size x size, bottom row first) with the geometry needed to
-  // recompute them elsewhere; null if the browser cannot read float pixels
-  sliceField(size = 96) {
+  // recompute them elsewhere; null if the browser cannot read float pixels. field: what the
+  // plane shows, or 'esp' for the electrostatic potential as the shader sums it
+  sliceField(size = 96, field = state.planeField) {
     const pl = state.plane, centre = P.planeCentre(pl), e2 = P.planeUp(pl), half = renderer.scene.planeRadius;
-    const values = renderer.renderSlice(size, centre, pl.e1, e2, half, state.planeField, true);
-    return values && { size, centre, e1: pl.e1, e2, half, field: state.planeField, values };
+    const values = renderer.renderSlice(size, centre, pl.e1, e2, half, field, true);
+    return values && { size, centre, e1: pl.e1, e2, half, field, values };
   },
   // the flat plot of the cut as a PNG data URL
   sliceSnapshot: () => $('slice').toDataURL('image/png'),

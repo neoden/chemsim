@@ -131,6 +131,35 @@ export class Dynamics {
     return false;
   }
 
+  // the middle of the nuclei
+  centre() {
+    const c = [0, 0, 0];
+    for (let k = 0; k < this.x.length; k++) c[k % 3] += this.x[k] / this.n;
+    return c;
+  }
+
+  // Moves everything by one vector, so that the middle of the nuclei is at `point`. For a run
+  // without a wall, where nothing is tied to a place: the forces and the electrons do not change.
+  centreAt(point) {
+    const by = this.centre().map((v, k) => point[k] - v);
+    for (let k = 0; k < this.x.length; k++) this.x[k] += by[k % 3];
+    if (this.grab?.target) this.grab.target = this.grab.target.map((v, k) => v + by[k]);
+  }
+
+  // The same run with only the atoms `keep` (indices): where they are, how they move, the
+  // clock and the settings are carried over. `force` computes for the smaller set. The new
+  // run still needs its init().
+  kept(keep, force) {
+    const pick = (a) => Float64Array.from({ length: 3 * keep.length }, (_, k) => a[3 * keep[(k / 3) | 0] + k % 3]);
+    const d = new Dynamics({ numbers: keep.map((i) => this.numbers[i]), positions: pick(this.x), force });
+    Object.assign(d.params, this.params);
+    d.uniform = this.uniform;
+    d.v = pick(this.v);
+    d.time = this.time;
+    d.steps = this.steps;
+    return d;
+  }
+
   // forces at the starting geometry; must succeed before step()
   init(wantOrbitals = true) {
     this.ready = this.evaluate(wantOrbitals);

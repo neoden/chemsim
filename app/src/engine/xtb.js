@@ -58,6 +58,11 @@ export async function createXtbEngine(wasmBytes) {
         engine: 'xtb',
         energy: u.energy,
         forces: u.hasGrad ? Float64Array.from(u.gradient, (g) => -g) : null,
+        // Mulliken multipoles of every atom about its own nucleus, atomic units: charge,
+        // dipole (x, y, z) and traceless quadrupole (xx, xy, yy, xz, yz, zz)
+        charges: Float64Array.from(u.charges),
+        dipoles: Float64Array.from(u.dipoles),
+        quadrupoles: Float64Array.from(u.quadrupoles),
         eps: Float64Array.from(u.eps),
         occ: Float64Array.from(u.occ), // both spins together, 0..2
         occAlpha: Float64Array.from(u.occAlpha), // spin up alone, 0..1

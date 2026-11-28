@@ -80,12 +80,13 @@ export function unpack(raw) {
   const [, energy, nat, nao, nmo, iterations, nshell, hasGrad] = raw;
   let o = 8;
   const take = (n) => raw.subarray(o, (o += n));
-  const gradient = take(3 * nat), eps = take(nmo), occ = take(nmo), occAlpha = take(nmo);
+  const gradient = take(3 * nat), charges = take(nat), dipoles = take(3 * nat), quadrupoles = take(6 * nat);
+  const eps = take(nmo), occ = take(nmo), occAlpha = take(nmo);
   const coeff = take(nmo * nao);
   const shells = [];
   for (let s = 0; s < nshell; s++) {
     const [atom, l, nprim] = take(3);
     shells.push({ atom, l, alpha: take(nprim), coeff: take(nprim) });
   }
-  return { energy, nat, nao, nmo, iterations, hasGrad: !!hasGrad, gradient, eps, occ, occAlpha, coeff, shells };
+  return { energy, nat, nao, nmo, iterations, hasGrad: !!hasGrad, gradient, charges, dipoles, quadrupoles, eps, occ, occAlpha, coeff, shells };
 }

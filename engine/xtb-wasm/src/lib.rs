@@ -6,7 +6,9 @@
 //! Result buffer layout (f64):
 //!   [0] status: 0 ok, 1 SCF not converged, 2 other error (message via xtb_err_*)
 //!   [1] energy  [2] nat  [3] nao  [4] nmo  [5] SCF iterations  [6] nshell  [7] has_gradient
-//!   then gradient (3*nat, dE/dR), orbital energies (nmo), occupations (nmo, both spins
+//!   then gradient (3*nat, dE/dR), the atomic multipoles of the electron distribution (Mulliken:
+//!   charges nat, dipoles 3*nat, quadrupoles 6*nat as xx, xy, yy, xz, yz, zz, traceless, each
+//!   about its own nucleus), orbital energies (nmo), occupations (nmo, both spins
 //!   together, 0..2), occupations of the alpha spin alone (nmo, 0..1),
 //!   coefficients (nmo*nao, orbital by orbital), and per shell:
 //!   atom, l, nprim, alpha[nprim], coeff[nprim].
@@ -81,6 +83,9 @@ impl Engine {
             }
             None => out.extend(std::iter::repeat(0.0).take(3 * nat)),
         }
+        out.extend(&sp.qat);
+        out.extend(sp.dpat.iter().flatten());
+        out.extend(sp.qpat.iter().flatten());
         if let Some(orb) = &sp.orbitals {
             let set = &orb.sets[0];
             let nmo = set.energies.len();

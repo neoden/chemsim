@@ -21,6 +21,21 @@
   <button type="button" id="edit-open" title="Change what is in the scene now, atom by atom, and keep the result as a molecule of your own">Edit</button>
   <button type="button" id="edit-new" title="Build a new molecule, starting from methane">New</button>
   <button type="button" id="find-open" title="Take a molecule from PubChem by its name, or build one from a formula in SMILES">Find…</button>
+  <div class="seg" id="view-mode" role="group" aria-label="What is drawn">
+    <button type="button" data-v="orbital" title="The selected orbital, two colours by the sign of the wave function">Orbital</button>
+    <button type="button" data-v="esp" title="The surface of the electron cloud, coloured by the electrostatic potential on it: red where a positive charge is drawn in, blue where it is pushed away">Potential</button>
+    <button type="button" data-v="equi" title="The surfaces around the molecule on which the electrostatic potential has one chosen value: red for minus that value, blue for plus. They show how far the field of the molecule reaches and where it points.">Equipotentials</button>
+  </div>
+  <label class="field" id="equi-field" hidden title="The potential on the two surfaces: minus this on the red one, plus this on the blue one. Ctrl with the mouse wheel over the picture changes it too.">At
+    <input type="range" id="equi-value" min="0" max="100" step="1" aria-label="Potential on the drawn surfaces">
+    <output id="equi-out" for="equi-value"></output>
+  </label>
+  <label class="field" id="esp-range-field" hidden title="What the colours of the potential are measured against">Colours
+    <span class="seg" id="esp-range">
+      <button type="button" data-v="fixed" title="The same scale for every molecule, full colour at 3 V: molecules can be compared, a weakly polar one comes out pale, an ion is off the scale">±3 V</button>
+      <button type="button" data-v="own" title="The scale is stretched to what this molecule has, so that its own pattern is seen in full colour. The same colour then means different potentials in different molecules: the numbers are under the picture.">This molecule</button>
+    </span>
+  </label>
   <label class="check"><input type="checkbox" id="body" checked>Molecule body</label>
   <label class="check"><input type="checkbox" id="wobble" checked>Wobble</label>
   <button type="button" id="about-open" class="ghost">About the model</button>
@@ -29,6 +44,7 @@
   <section class="stage" id="stage">
     <canvas id="view" aria-label="The molecule's electron cloud. Drag with the mouse to rotate; the wheel zooms."></canvas>
     <div id="labels" aria-hidden="true"></div>
+    <svg id="wall-ring" aria-hidden="true"><circle r="0"/></svg>
     <svg id="grab-line" aria-hidden="true"><line x1="0" y1="0" x2="0" y2="0"/><circle r="4"/></svg>
     <svg id="skeleton" aria-hidden="true"></svg>
     <div id="edit-bar" hidden>
@@ -59,13 +75,25 @@
       <canvas id="slice" aria-label="The same cut as a flat plot: a colour map of the field with contour lines"></canvas>
       <figcaption id="slice-caption"></figcaption>
     </figure>
-    <div class="legend">
+    <div class="legend" id="legend-orbital">
       <span><i style="background:#3885ff"></i>phase +</span>
       <span><i style="background:#ff801f"></i>phase −</span>
       <span><i style="background:#8e949f"></i>body: total valence density</span>
       <span>empty orbitals are paler</span>
       <span class="two-only" hidden><i style="background:#59ff99"></i>molecules overlap in phase</span>
       <span class="two-only" hidden><i style="background:#ff33a6"></i>out of phase</span>
+    </div>
+    <div class="legend" id="legend-equi" hidden>
+      <span><i style="background:#db2b26"></i>potential <b id="equi-neg"></b>: draws a positive charge in</span>
+      <span><i style="background:#295ce6"></i>potential <b id="equi-pos"></b>: pushes it away</span>
+      <span><i style="background:#8e949f"></i>surface of the electron cloud</span>
+      <span>a surface is missing where the potential does not reach the value; it is not drawn inside the cloud, and is cut off far from the molecule</span>
+    </div>
+    <div class="legend" id="legend-esp" hidden>
+      <span class="scale"><b id="esp-min"></b><i></i><b id="esp-max"></b></span>
+      <span>electrostatic potential on the surface of the electron cloud</span>
+      <span>red: draws a positive charge in (electron-rich)</span>
+      <span>blue: pushes it away (electron-poor)</span>
     </div>
   </section>
   <aside>
@@ -91,6 +119,8 @@
         <label class="row"><span>Step</span><input type="number" id="md-dt" min="0.05" max="2" step="0.05" value="0.5"><em>fs</em></label>
         <label class="row" title="The time over which the thermostat pulls the temperature towards the set value"><span>Coupling</span><input type="number" id="md-tau" min="5" max="5000" step="5" value="100"><em>fs</em></label>
         <label class="row" title="Electronic temperature: smears the occupations near the Fermi level"><span>Electr. T</span><input type="number" id="md-etemp" min="0" max="30000" step="100" value="300"><em>K</em></label>
+        <label class="check" title="An invisible sphere around the scene that pushes back any nucleus that gets beyond it, so that what comes apart stays in the picture. It takes no energy away. The dashed circle shows it. Without it a piece that comes off flies away for good: the view glides after what is left, and a piece that is 10 Å from everything else is taken out of the scene."><input type="checkbox" id="md-wall" checked>Wall</label>
+        <label class="row" title="The radius of the wall. Left alone, it is 1.3 Å beyond the nucleus farthest from the centre when the run starts; it never goes inside the nuclei, and it grows if you carry a molecule past it."><span>Wall radius</span><input type="number" id="md-wall-r" min="1" max="30" step="0.5"><em>Å</em></label>
         <label class="row" title="How many electrons are left unpaired (spins pointing the same way). 0 means all paired; oxygen has 2; a radical has 1. The number must have the same parity as the number of electrons in the scene."><span>Unpaired e⁻</span><select id="unpaired"></select></label>
       </details>
       <canvas id="md-chart" hidden aria-label="Plot of the total and potential energy over time"></canvas>
@@ -142,6 +172,7 @@
   <ul>
     <li>The nuclei are classical. There is no zero-point motion, and at low temperatures the amplitudes are too small.</li>
     <li>Dissociation at realistic temperatures is too rare to wait for. Heating to thousands of kelvin is a way to speed the event up.</li>
+    <li>The electrostatic potential is that of the valence electrons and the atomic cores, with the electron cloud replaced by point charges, dipoles and quadrupoles on the nuclei and on the bonds. On the coloured surface that is within some 0.05 V of the potential of the cloud itself. The cloud comes from a minimal set of functions, so the numbers are approximate; where the surface is red and where it is blue can be trusted.</li>
     <li>The method is fitted to geometries, frequencies and intermolecular interactions. Reaction energies and barrier heights are approximate.</li>
     <li>Light in a model like this can only be a classical wave. There is no spontaneous emission.</li>
   </ul>

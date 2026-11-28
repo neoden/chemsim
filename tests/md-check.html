@@ -102,6 +102,48 @@ try {
     note(`a non-converged step pauses with a message: "${text.slice(0, 70)}…"`, !s.md.running && /did not converge/.test(text) && d.getElementById('status').classList.contains('error'));
     c.md.pause();
   }
+  // ---- the wall: two noble-gas atoms at 3000 K stay inside it; its circle, its radius;
+  // without it they fly apart, and the one that is 10 A away is taken out of the run, which goes on
+  {
+    const w = await openApp('mol=he&second=ne&seed=3&speed=0&temp=3000'), c = w.chemsim, d = w.document, s = c.state;
+    const far = () => { let m = 0; const p = s.molecule.positions; for (let k = 0; k < p.length; k += 3) m = Math.max(m, Math.hypot(p[k], p[k + 1], p[k + 2])); return m; };
+    const ring = () => +d.querySelector('#wall-ring circle').getAttribute('r'), field = d.getElementById('md-wall-r');
+    const hidden = ring();
+    d.getElementById('md-run').click();
+    await until(() => s.md?.time > 1500);
+    d.getElementById('md-run').click();
+    await sleep(300);
+    const R = s.md.wallRadius, shown = ring(), inside = far();
+    note(`with the wall (radius ${(R * 0.529177).toFixed(1)} A) He and Ne at 3000 K are ${(inside * 0.529177).toFixed(1)} A from the centre after ${s.md.time.toFixed(0)} fs`, inside < R + 1.5);
+    note(`the wall is drawn as a circle of ${shown.toFixed(0)} px once there is a run (${hidden} px before), and the field shows its radius (${field.value} A)`, hidden === 0 && shown > 50 && Math.abs(+field.value - R * 0.529177) < 0.06);
+    field.value = 12; field.dispatchEvent(new Event('change'));
+    await sleep(200);
+    const half = d.getElementById('view').clientHeight / 2;
+    note(`radius set to 12 A: the wall is at ${(s.md.wallRadius * 0.529177).toFixed(1)} A, and the camera has backed away so that its circle (${ring().toFixed(0)} px) is in the picture (${half.toFixed(0)} px to the edge)`,
+      Math.abs(s.md.wallRadius * 0.529177 - 12) < 1e-3 && ring() > 100 && ring() < half);
+    field.value = 0.2; field.dispatchEvent(new Event('change'));
+    await sleep(200);
+    note(`radius set to 0.2 A: the wall stops ${((s.md.wallRadius - far()) * 0.529177).toFixed(2)} A outside the farthest nucleus`, Math.abs(s.md.wallRadius - far() - 0.5) < 1e-6);
+    const box = d.getElementById('md-wall'), camera = s.camera.distance;
+    box.checked = false; box.dispatchEvent(new Event('change'));
+    await sleep(100);
+    note(`wall off: no circle, the radius field is disabled`, ring() === 0 && field.disabled);
+    d.getElementById('md-run').click();
+    const dropped = await until(() => s.molecule.elements.length === 1, 60000);
+    const status = d.getElementById('status').textContent, at = s.md.time;
+    await until(() => s.md.time > at + 300);
+    await sleep(1500); // the middle of what is left glides to the centre
+    note(`without the wall the atom that flew off is taken out: the scene is ${c.composition()} (${s.molecule.elements.length} atom, charge ${s.molecule.charge}), "${status.slice(0, 40)}…"`,
+      dropped && c.composition() === 'He' && s.molecule.charge === 0 && /taken out/.test(status) && d.getElementById('labels').children.length === 1);
+    note(`the run goes on with what is left (${s.md.time.toFixed(0)} fs, running: ${s.md.running}), which is ${(far() * 0.529177).toFixed(2)} A from the centre the view turns about; the zoom is where it was (${camera.toFixed(1)} -> ${s.camera.distance.toFixed(1)} bohr)`,
+      s.md.running && s.md.time > at + 300 && far() < 0.5 && s.camera.distance === camera);
+    await report('md-no-wall.png', c.snapshot());
+    d.getElementById('md-run').click();
+    await sleep(300);
+    box.checked = true; box.dispatchEvent(new Event('change'));
+    await sleep(100);
+    note(`wall back on: it stands ${((s.md.wallRadius - far()) * 0.529177).toFixed(2)} A outside the farthest nucleus, at least the usual 1.32`, s.md.wallRadius - far() > 2.5 - 1e-6 && ring() > 0);
+  }
 } catch (e) { out.ok = false; out.error = String(e.stack || e); }
 await report('done.json', JSON.stringify(out, null, 1));
 </script>

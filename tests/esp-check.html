@@ -1,0 +1,139 @@
+<!doctype html><meta charset="utf-8"><title>potential check</title>
+<style>body{margin:0;background:#222}iframe{border:0;display:block}</style>
+<iframe id="app" width="1400" height="900"></iframe>
+<script type="module">
+// The electrostatic potential in the browser: the shader's sum over the charge sites against
+// the same sum on the CPU in double precision, the colours of the drawn surface where the
+// sign of the potential is not in doubt, the surfaces of equal potential, and pictures for looking at.
+import { chargeSites, potential, ESP_CORE } from '/app/src/esp.js';
+import { project } from '/app/src/render/fog.js';
+const report = (name, body) => fetch('/__report/' + name, { method: 'POST', body });
+const frame = document.getElementById('app');
+const out = { ok: true, sum: [], colours: [], pictures: [] };
+async function openApp(query) {
+  const done = new Promise((r) => frame.addEventListener('load', r, { once: true }));
+  frame.src = '/app/index.html?wobble=0&scale=own&' + (query.includes('view=') ? '' : 'view=esp&') + query; // every molecule in full colour
+  await done;
+  const w = frame.contentWindow;
+  while (!w.chemsim) await new Promise((r) => setTimeout(r, 20));
+  await w.chemsim.ready;
+  return w;
+}
+const pixels = async (dataUrl) => {
+  const img = new Image(); img.src = dataUrl; await img.decode();
+  const c = new OffscreenCanvas(img.width, img.height), ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  return ctx.getImageData(0, 0, img.width, img.height);
+};
+try {
+  // ---- the sum in the shader
+  for (const [q, name] of [['mol=h2o&plane=three:0,1,2', 'h2o'], ['mol=c6h6&plane=along:0,3', 'c6h6'], ['mol=feco5&plane=three:0,1,3', 'feco5'], ['mol=bh3&second=nh3&plane=view', 'bh3 + nh3']]) {
+    const w = await openApp(q), c = w.chemsim, f = c.sliceField(96, 'esp');
+    if (!f) { out.sum.push(`${name}: float readback unavailable, skipped`); continue; }
+    const m = c.state.molecule, sites = chargeSites(m.numbers, m.positions, c.state.result);
+    let maxErr = 0, maxVal = 0, n = 0;
+    for (let y = 0; y < f.size; y++) for (let x = 0; x < f.size; x++) {
+      const u = ((x + 0.5) / f.size * 2 - 1) * f.half, v = ((y + 0.5) / f.size * 2 - 1) * f.half;
+      const p = [0, 1, 2].map((k) => f.centre[k] + u * f.e1[k] + v * f.e2[k]);
+      // only where the potential is drawn: not next to a site, where it is cut off steeply
+      let near = false;
+      for (let k = 0; k < sites.n && !near; k++) near = Math.hypot(p[0] - sites.positions[3 * k], p[1] - sites.positions[3 * k + 1], p[2] - sites.positions[3 * k + 2]) < 2 * ESP_CORE;
+      if (near) continue;
+      const want = potential(sites, p);
+      maxErr = Math.max(maxErr, Math.abs(want - f.values[y * f.size + x]));
+      maxVal = Math.max(maxVal, Math.abs(want));
+      n++;
+    }
+    out.sum.push(`${name}: ${sites.n} sites, max |GPU - CPU| = ${maxErr.toExponential(1)} Eh at ${n} points (potential up to ${maxVal.toFixed(3)})`);
+    if (maxErr > 2e-4) out.ok = false;
+  }
+  // ---- the colours of the surface: the pixel next to where a point of the molecule is seen. want: 'red' (negative) or 'blue' (positive).
+  const side = async (w, name, point, want) => {
+    const c = w.chemsim, canvas = w.document.getElementById('view'), img = await pixels(c.snapshot());
+    const [x, y] = project(point, c.state.camera, canvas.clientWidth, canvas.clientHeight);
+    // a little to the side: the nuclei shine through as white dots
+    const px = Math.round((x + 24) * img.width / canvas.clientWidth), py = Math.round(y * img.height / canvas.clientHeight), at = 4 * (py * img.width + px);
+    const [r, g, b] = img.data.subarray(at, at + 3), got = r > b + 40 ? 'red' : b > r + 40 ? 'blue' : 'pale';
+    out.colours.push(`${name}: rgb(${r}, ${g}, ${b}) is ${got}, expected ${want}${got === want ? '' : '  WRONG'}`);
+    if (got !== want) out.ok = false;
+  };
+  {
+    // water seen along its axis from the oxygen side, then from the hydrogen side
+    const w = await openApp('mol=h2o&yaw=0&pitch=1.5707'), p = w.chemsim.state.molecule.positions;
+    await side(w, 'water, over the oxygen', [p[0], p[1] + 1, p[2]], 'red');
+    const v = await openApp('mol=h2o&yaw=0&pitch=-1.5707');
+    await side(v, 'water, under the hydrogens', [0, p[4] - 1, 0], 'blue');
+  }
+  {
+    // benzene: the face of the ring, and a hydrogen end-on
+    const w = await openApp('mol=c6h6&yaw=0&pitch=0'), c = w.chemsim, p = c.state.molecule.positions;
+    // which way the ring faces: the normal of the plane through three carbons
+    const a = [0, 1, 2].map((k) => p[3 + k] - p[k]), b = [0, 1, 2].map((k) => p[6 + k] - p[k]);
+    const n = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]], l = Math.hypot(...n);
+    const face = await openApp(`mol=c6h6&yaw=${Math.atan2(n[0], n[2])}&pitch=${Math.asin(n[1] / l)}`);
+    await side(face, 'benzene, the face of the ring', [0, 0, 0], 'red');
+    const h = [18, 19, 20].map((k) => p[k]); // the first hydrogen
+    const end = await openApp(`mol=c6h6&yaw=${Math.atan2(h[0], h[2])}&pitch=${Math.asin(h[1] / Math.hypot(...h))}`);
+    await side(end, 'benzene, a hydrogen end-on', h, 'blue');
+  }
+  // ---- the two scales
+  {
+    const w = await openApp('mol=c6h6'), c = w.chemsim, d = w.document, shown = () => d.getElementById('esp-max').textContent;
+    const own = shown(), a = await pixels(c.snapshot());
+    d.querySelector('#esp-range [data-v="fixed"]').click();
+    const fixed = shown(), b = await pixels(c.snapshot());
+    // how far from grey the picture is, summed: on the common scale benzene is pale
+    const colour = (img) => { let s = 0; for (let i = 0; i < img.data.length; i += 4) s += Math.abs(img.data[i] - img.data[i + 2]); return s / (img.data.length / 4); };
+    const good = fixed === '+3.0 V' && own === '+0.54 V' && colour(b) < 0.5 * colour(a);
+    out.colours.push(`benzene: stretched to it the colours are full at ${own}, on the common scale at ${fixed}; red-blue contrast ${colour(a).toFixed(1)} and ${colour(b).toFixed(1)}${good ? '' : '  WRONG'}`);
+    if (!good) out.ok = false;
+  }
+  // ---- surfaces of equal potential
+  {
+    // share of the pixels that are clearly red, and clearly blue
+    const shares = (img) => { let r = 0, b = 0; for (let i = 0; i < img.data.length; i += 4) { if (img.data[i] > img.data[i + 2] + 60) r++; if (img.data[i + 2] > img.data[i] + 60) b++; } return [r, b].map((n) => n / (img.data.length / 4)); };
+    const w = await openApp('mol=h2o&view=equi&ev=1.5&yaw=0&pitch=0&canvas=900x700'), c = w.chemsim, d = w.document;
+    const [red, blue] = shares(await pixels(c.snapshot()));
+    // the same value everywhere a surface is drawn: no surface for a value the molecule does not reach
+    const slider = d.getElementById('equi-value');
+    slider.value = 100; slider.dispatchEvent(new Event('input'));
+    const [red10, blue10] = shares(await pixels(c.snapshot()));
+    const top = d.getElementById('equi-out').textContent;
+    // Ctrl with the wheel over the picture changes the value; without Ctrl it is the zoom
+    const view = d.getElementById('view'), wheel = (ctrlKey) => view.dispatchEvent(new w.WheelEvent('wheel', { deltaY: 700, ctrlKey, bubbles: true, cancelable: true }));
+    const far = c.state.camera.distance;
+    wheel(true);
+    const turned = c.state.equiVolts, kept = c.state.camera.distance === far;
+    wheel(false);
+    const wheelOk = Math.abs(turned - 10 * Math.exp(-0.7)) < 1e-9 && kept && c.state.camera.distance > far && c.state.equiVolts === turned;
+    out.colours.push(`Ctrl and the wheel: 10 V -> ${turned.toFixed(2)} V with the view where it was; the wheel alone zooms and leaves the value${wheelOk ? '' : '  WRONG'}`);
+    if (!wheelOk) out.ok = false;
+    const good = red > 0.01 && blue > 0.01 && red10 === 0 && blue10 === 0 && top === '±10.0 V';
+    out.colours.push(`water at ±1.5 V: ${(100 * red).toFixed(1)} % of the picture red, ${(100 * blue).toFixed(1)} % blue; at ${top}: ${(100 * red10).toFixed(1)} % and ${(100 * blue10).toFixed(1)} %${good ? '' : '  WRONG'}`);
+    if (!good) out.ok = false;
+  }
+  {
+    // a fluoride ion: the surface of -3 V is a sphere of radius 1/V, a little less for the size of the cloud
+    const w = await openApp('mol=f-&view=equi&ev=3&canvas=900x700'), c = w.chemsim;
+    c.state.camera.distance = 34;
+    const img = await pixels(c.snapshot()), row = Math.round(img.height / 2);
+    let left = img.width, right = 0;
+    for (let x = 0; x < img.width; x++) { const at = 4 * (row * img.width + x); if (img.data[at] > img.data[at + 2] + 60) { left = Math.min(left, x); right = x; } }
+    // half-width on the screen -> the angle of the tangent ray -> the radius
+    const tan = (right - left) / 2 / (2.3 * img.height / 2), radius = 34 * tan / Math.hypot(1, tan), want = 27.211386 / 3;
+    const good = Math.abs(radius - want) < 0.04 * want;
+    out.colours.push(`fluoride ion at -3 V: a sphere of radius ${radius.toFixed(2)} bohr, expected ${want.toFixed(2)}${good ? '' : '  WRONG'}`);
+    if (!good) out.ok = false;
+  }
+  // ---- pictures
+  for (const q of ['mol=h2o', 'mol=nh3', 'mol=h2co', 'mol=c6h6', 'mol=ch3cooh', 'mol=bh3&second=nh3&yaw=-0.5', 'mol=nacl', 'mol=cl-', 'mol=nh4%2B', 'mol=ferrocene', 'mol=c2h4&plane=view&pmode=knife',
+    'mol=h2o&view=equi&ev=1.5', 'mol=bh3&view=equi', 'mol=c6h6&view=equi&ev=0.3', 'mol=h2so4&second=f-&view=equi&ev=3']) {
+    const w = await openApp(q + '&canvas=900x700'), name = (q.includes('view=equi') ? 'equi-' : 'esp-') + decodeURIComponent(q).replace(/mol=|second=|yaw=.*|plane=.*|view=.*/g, '').replace(/[^a-z0-9+-]+/g, '') + '.png';
+    await report(name, w.chemsim.snapshot());
+    out.pictures.push(`${name}: full colour at ${(w.chemsim.state.espScale * 27.211386).toFixed(2)} V, potential grid ${w.chemsim.renderer.esp.n}`);
+  }
+} catch (e) {
+  out.ok = false; out.error = String(e.stack || e);
+}
+await report('done.json', JSON.stringify(out, null, 1));
+</script>

@@ -6,6 +6,11 @@
 // absorption along the ray, soft translucent shells, lighting by the analytic gradient,
 // two colours by the sign of the wavefunction, dim grey "body" of the total valence density,
 // pale "ghost" for empty orbitals, nuclei as small glowing dots.
+// The other views have no orbital. `view: 'esp'`: instead of the body the surface where the
+// valence density is ESP_DENSITY, coloured by the electrostatic potential there (see esp.js).
+// `view: 'equi'`: that surface in grey, and outside it the two surfaces on which the potential
+// is plus and minus a chosen value.
+import { ESP_DENSITY, ESP_CORE, PEN_N, PEN_R } from '../esp.js';
 
 const VS = `#version 300 es
 void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.0-1.0,0.0,1.0);}`;
@@ -106,6 +111,30 @@ rho+=dot(q,q);
 return rho;
 }`;
 
+// The electrostatic potential of the charge sites: the same sum as potential() in esp.js.
+// uSite: row 0 = xyz; row 1 = charge, dipole x, y, z; row 2 = quadrupole xx, xy, yy, xz;
+// row 3 = yz, zz. The first uNP sites are the nuclei, and row a of uPen is the correction for
+// the size of atom a's cloud, times the distance, at PEN_N distances up to PEN_R.
+const POTENTIAL_GLSL = `
+uniform sampler2D uSite,uPen;
+uniform int uNS,uNP;
+float potential(vec3 p){
+float v=0.0;
+for(int k=0;k<uNS;k++){
+vec3 r=p-texelFetch(uSite,ivec2(k,0),0).xyz;
+float r2=max(dot(r,r),${(ESP_CORE * ESP_CORE).toFixed(4)}),ir=inversesqrt(r2),ir3=ir*ir*ir;
+vec4 m=texelFetch(uSite,ivec2(k,1),0),q=texelFetch(uSite,ivec2(k,2),0);
+vec2 q2=texelFetch(uSite,ivec2(k,3),0).xy;
+v+=m.x*ir+dot(m.yzw,r)*ir3+(q.x*r.x*r.x+q.z*r.y*r.y+q2.y*r.z*r.z+2.0*(q.y*r.x*r.y+q.w*r.x*r.z+q2.x*r.y*r.z))*ir3*ir*ir;
+if(k<uNP&&r2<${(PEN_R * PEN_R).toFixed(1)}){
+float t=r2*ir*${((PEN_N - 1) / PEN_R).toFixed(6)};
+int i=min(int(t),${PEN_N - 2});
+v+=mix(texelFetch(uPen,ivec2(i,k),0).x,texelFetch(uPen,ivec2(i+1,k),0).x,t-float(i))*ir;
+}
+}
+return v;
+}`;
+
 // The grids are filled in one draw call each: all the slices of the cube side by side on a
 // flat sheet, uCols of them in a row, which is then copied into the 3D texture slice by slice.
 // One draw call a slice was several times slower for the body: a call takes at least as long
@@ -154,6 +183,20 @@ orbital2(p,pa,ga,pb,gb);
 o=uPart==0?vec4(pa,ga):vec4(pb,gb);
 }`;
 
+// Fills the sheet with the electrostatic potential.
+const potentialGridSource = () => `#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+out vec4 o;
+${SHEET_GLSL}
+${POTENTIAL_GLSL}
+void main(){
+vec3 p;
+if(!sheetPoint(p))discard;
+o=vec4(clamp(potential(p),-8.0,8.0),0.0,0.0,1.0);
+}`;
+
 // Colour of the cut at point p: the field is evaluated exactly there (no grid), drawn as a
 // colour map with isolines every factor of 2 and, for an orbital, the nodal line in white.
 const CUT_GLSL = `
@@ -185,7 +228,8 @@ return vec4(c,a);
 }`;
 
 // The cut drawn flat: uC + x*uE1 + y*uE2 over [-uHalf, uHalf]^2. uRaw = 1 writes the bare
-// field value instead of the colour (for checking it against a CPU evaluation).
+// field value instead of the colour (for checking it against a CPU evaluation); only so can
+// the electrostatic potential be had on the cut (uPlField 2).
 const sliceSource = (maxAo) => `#version 300 es
 precision highp float;
 precision highp int;
@@ -197,10 +241,11 @@ uniform float uHalf,uN;
 uniform int uRaw;
 ${BASIS_GLSL}
 ${CUT_GLSL}
+${POTENTIAL_GLSL}
 void main(){
 vec2 q=(gl_FragCoord.xy/uN*2.0-1.0)*uHalf;
 vec3 p=uC+q.x*uE1+q.y*uE2;
-if(uRaw==1){o=vec4(cutField(p),0.0,0.0,1.0);return;}
+if(uRaw==1){o=vec4(uPlField==2?potential(p):cutField(p),0.0,0.0,1.0);return;}
 vec4 c=cutColor(p);
 o=vec4(pow(mix(vec3(0.006,0.007,0.012),c.rgb,c.a),vec3(1.0/2.2)),1.0);
 }`;
@@ -211,7 +256,9 @@ o=vec4(pow(mix(vec3(0.006,0.007,0.012),c.rgb,c.a),vec3(1.0/2.2)),1.0);
 // per geometry and orbital; orbGrid = false: they are evaluated from the basis set at every
 // ray step. That is the costly part of a frame (some thirty exponentials a step for water,
 // more with every atom nearby), and what the grid replaces with one or two texture reads.
-const fragmentSource = (maxAo, grid, orbGrid) => `#version 300 es
+// espGrid = true: the potential is read from a 3D texture too; false: summed over the charge
+// sites at every ray step that is on the surface.
+const fragmentSource = (maxAo, grid, orbGrid, espGrid) => `#version 300 es
 precision highp float;
 precision highp int;
 precision highp sampler2D;
@@ -224,7 +271,15 @@ uniform vec2 uR;
 uniform vec3 uCam,uRt,uUp,uFw; // uCam.z: the camera's distance; the rest: its axes, see cameraBasis
 uniform float uRb,uGhost,uBody;
 uniform int uSteps;
-uniform sampler3D uRho,uPsiA,uPsiB;
+uniform sampler3D uRho,uPsiA,uPsiB,uEsp;
+// uView 1: the surface coloured by the potential, full colour at +-uEspScale;
+// uView 2: the surface in grey and the surfaces where the potential is +-uEspScale;
+// uVox, uVoxE: the steps the slopes of the density and of the potential are taken over
+uniform int uView;
+uniform float uEspScale,uVox,uVoxE;
+float potentialAt(vec3 p){
+${espGrid ? 'return textureLod(uEsp,p/uRb*0.5+0.5,0.0).x;' : 'return potential(p);'}
+}
 // cutting plane: dot(uPl.xyz, p) = uPl.w; uPlMode 0 off, 1 knife (the side the normal points
 // to is removed), 2 sheet (fog on both sides); uPlR: radius of the drawn disc
 uniform vec4 uPl;
@@ -232,6 +287,7 @@ uniform int uPlMode,uFrags; // uFrags: number of fragments in the scene (1 or 2)
 uniform float uPlR;
 ${BASIS_GLSL}
 ${CUT_GLSL}
+${POTENTIAL_GLSL}
 float ign(vec2 p){return fract(52.9829189*fract(dot(p,vec2(0.06711056,0.00583715))));}
 float erfa(float x){float x2=x*x;return sign(x)*sqrt(1.0-exp(-x2*(1.2732395+0.147*x2)/(1.0+0.147*x2)));}
 // mean of a Gaussian band exp(-((l-lvl)/w)^2) between two samples of l, so that a thin
@@ -242,7 +298,7 @@ if(abs(dx)<1e-3)return exp(-x0*x0);
 return 0.8862269*(erfa(x1)-erfa(x0))/dx;
 }
 float logDensity(vec3 p){
-${grid ? 'return texture(uRho,p/uRb*0.5+0.5).x;' : 'return log(density(p)+1e-13);'}
+${grid ? 'return textureLod(uRho,p/uRb*0.5+0.5,0.0).x;' : 'return log(density(p)+1e-13);'}
 }
 void main(){
 vec2 uv=(gl_FragCoord.xy*2.0-uR)/uR.y;
@@ -287,9 +343,60 @@ if(!pd&&tp<=t0){col+=T*pc.a*pc.rgb;T*=1.0-pc.a;pd=true;}
 float dt=(t1-t0)/float(uSteps);
 float t=t0+dt*ign(gl_FragCoord.xy);
 tq=t;dq=max(dt,1e-6);P[0]=T;
-float lp=-30.0,lb=-30.0;
+float lp=-30.0,lb=-30.0,xq=0.0;
 for(int i=0;i<uSteps;i++){
 vec3 p=ro+rd*t;
+float s;vec3 cs; // what this step absorbs, and its colour times that
+if(uView==1){
+float lr=logDensity(p);
+if(i==0)lb=lr;
+s=7.0*bandI(lb,lr,${Math.log(ESP_DENSITY).toFixed(4)},0.45);
+cs=vec3(0.0);
+if(s>0.02){
+float v=clamp(potentialAt(p)/uEspScale,-1.0,1.0);
+// red where a positive charge is drawn in, blue where it is pushed away; the mix is made in
+// display colours, so that the legend on the page can be an ordinary gradient
+vec3 c=pow(mix(vec3(0.95,0.94,0.92),v<0.0?vec3(0.86,0.17,0.15):vec3(0.16,0.36,0.90),abs(v)),vec3(2.2));
+vec2 e=vec2(uVox,0.0);
+vec3 n=-normalize(vec3(logDensity(p+e.xyy)-logDensity(p-e.xyy),logDensity(p+e.yxy)-logDensity(p-e.yxy),logDensity(p+e.yyx)-logDensity(p-e.yyx))+vec3(1e-12));
+float dd=0.5+0.5*dot(n,L);
+cs=s*c*(0.3+0.75*dd*dd);
+}
+lb=lr;
+}else if(uView==2){
+float lr=logDensity(p);
+if(i==0)lb=lr;
+// the surface of the cloud, grey
+float sg=5.0*bandI(lb,lr,${Math.log(ESP_DENSITY).toFixed(4)},0.45);
+vec3 cg=vec3(0.0);
+vec2 e=vec2(uVox,0.0);
+if(sg>0.02){
+vec3 n=-normalize(vec3(logDensity(p+e.xyy)-logDensity(p-e.xyy),logDensity(p+e.yxy)-logDensity(p-e.yxy),logDensity(p+e.yyx)-logDensity(p-e.yyx))+vec3(1e-12));
+float dd=0.5+0.5*dot(n,L);
+cg=vec3(0.30,0.31,0.34)*(0.3+0.75*dd*dd);
+}
+// The surfaces of equal potential: thin shells, their thickness set in space (EQUI_THICK
+// bohr) by the slope of the potential, so that the far, flat part of an ion's field is as
+// thin a shell as a lobe next to a molecule. Only outside the cloud: inside it the point
+// charges the potential is summed from mean nothing.
+float f=potentialAt(p)/uEspScale;
+e=vec2(uVoxE,0.0);
+vec3 gv=vec3(potentialAt(p+e.xyy)-potentialAt(p-e.xyy),potentialAt(p+e.yxy)-potentialAt(p-e.yxy),potentialAt(p+e.yyx)-potentialAt(p-e.yyx))/(2.0*uVoxE*uEspScale);
+float x=(abs(f)-1.0)/(length(gv)*${EQUI_THICK.toFixed(2)}+1e-9);
+if(i==0)xq=x;
+float out_=1.0-smoothstep(${(Math.log(ESP_DENSITY) - 0.3).toFixed(4)},${(Math.log(ESP_DENSITY) + 0.1).toFixed(4)},lr);
+float se=3.5*out_*bandI(xq,x,0.0,1.0);
+vec3 ce=vec3(0.0);
+if(se>0.01){
+vec3 c=pow(f<0.0?vec3(0.86,0.17,0.15):vec3(0.16,0.36,0.90),vec3(2.2));
+vec3 n=-sign(f)*normalize(gv+vec3(1e-12));
+float dd=0.5+0.5*dot(n,L);
+ce=c*(0.3+0.75*dd*dd)+0.25*pow(1.0-abs(dot(n,rd)),2.5)*c;
+}
+s=sg+se;
+cs=sg*cg+se*ce;
+lb=lr;xq=x;
+}else{
 float pa,pb;vec3 ga,gb;
 ${orbGrid ? `vec3 pq=p/uRb*0.5+0.5;
 vec4 A=textureLod(uPsiA,pq,0.0);pa=A.x;ga=A.yzw;pb=0.0;gb=vec3(0.0);
@@ -317,11 +424,13 @@ vec3 c3=ov>0.0?vec3(0.35,1.0,0.6):vec3(1.0,0.2,0.65);
 cv=c3*(0.28+0.85*max(dot(nv,L),0.0))+0.3*pow(1.0-abs(dot(nv,rd)),2.5)*c3;
 so*=1.0-0.8*m;
 }
-float s=so+sb+sv;
-float a=1.0-exp(-s*dt);
-col+=T*a*(so*co+sb*cb+sv*cv)/max(s,1e-6);
-T*=1.0-a;
+s=so+sb+sv;
+cs=so*co+sb*cb+sv*cv;
 lp=l;lb=lr;
+}
+float a=1.0-exp(-s*dt);
+col+=T*a*cs/max(s,1e-6);
+T*=1.0-a;
 t+=dt;
 nd=i+1;if(nd%STRIDE==0)P[nd/STRIDE]=T;
 if(!pd&&t>=tp){col+=T*pc.a*pc.rgb;T*=1.0-pc.a;pd=true;}
@@ -347,13 +456,17 @@ o=vec4(pow(clamp(col,0.0,1.0),vec3(1.0/2.2)),1.0);
 }`;
 
 const UNIFORMS = ['uR', 'uCam', 'uRt', 'uUp', 'uFw', 'uRb', 'uGhost', 'uBody', 'uNA', 'uNO', 'uSteps', 'uAtom', 'uShell', 'uPrim', 'uCoef', 'uOcc', 'uRho', 'uPsiA', 'uPsiB', 'uN', 'uCols', 'uPart',
-  'uPl', 'uPlMode', 'uFrags', 'uPlField', 'uPlR', 'uC', 'uE1', 'uE2', 'uHalf', 'uRaw'];
-const UNITS = { uAtom: 0, uShell: 1, uPrim: 2, uCoef: 3, uOcc: 8 }; // texture units of the data textures
+  'uPl', 'uPlMode', 'uFrags', 'uPlField', 'uPlR', 'uC', 'uE1', 'uE2', 'uHalf', 'uRaw', 'uSite', 'uPen', 'uNS', 'uNP', 'uEsp', 'uView', 'uEspScale', 'uVox', 'uVoxE'];
+const UNITS = { uAtom: 0, uShell: 1, uPrim: 2, uCoef: 3, uOcc: 8, uSite: 9, uPen: 11 }; // texture units of the data textures
 // The ray march takes at most MAX_STEPS steps and notes the light left after every STRIDE-th
 // of them, for the nuclei. The notes are a small array on purpose: the shader used to keep a
 // value per atom and update all of them at every step, and past 128 atoms a frame took 250 ms.
 const MAX_STEPS = 240, STRIDE = 4;
+const EQUI_THICK = 0.15; // bohr, thickness of a drawn surface of equal potential
+const EQUI_MARGIN = 10; // bohr around the cloud within which those surfaces are drawn; further out they are cut off
 const GRID_SPACING = 0.18; // bohr, target voxel size of the body-density and orbital grids
+// ray steps through a sphere of radius rb: the framing of the reference demo, more only for larger molecules
+const stepsFor = (rb) => Math.max(120, Math.min(MAX_STEPS, Math.round(120 * rb / 8.5)));
 const bucket = (n, min) => { let b = min; while (b < n) b *= 2; return b; };
 
 // Distance beyond which every function of a shell stays below `tol` in absolute value.
@@ -396,8 +509,14 @@ export class FogRenderer {
     // for a scene of two fragments
     this.orbGrid = orbGrid && floatTarget;
     this.orb = { a: null, b: null, n: 0 };
-    // the flat sheet the grids are computed on, and the framebuffer their slices are copied through
-    this.sheet = { texture: null, fbo: gl.createFramebuffer(), layer: gl.createFramebuffer(), n: 0, cols: 0 };
+    // the electrostatic potential on the same cube, on a grid of its own (see _potentialSize)
+    this.espGrid = floatTarget;
+    this.esp = { texture: null, n: 0 };
+    // the flat sheets the grids are computed on, and the framebuffers their slices are copied
+    // through: one for the density and the orbital, one for the potential, whose grid may be coarser
+    const sheet = () => ({ texture: null, fbo: gl.createFramebuffer(), layer: gl.createFramebuffer(), n: 0, cols: 0 });
+    this.sheet = sheet();
+    this.espSheet = sheet();
     this.plane = null;
     this.slice = { fbo: gl.createFramebuffer(), texture: null, key: '' };
     this.canReadFloat = !!gl.getExtension('EXT_color_buffer_float');
@@ -412,7 +531,7 @@ export class FogRenderer {
   // The cut drawn flat on a size x size image around `center`, spanned by unit vectors e1
   // (right) and e2 (up), half-width `half` bohr. Returns RGBA bytes, top row first; with
   // raw = true a Float32Array of field values instead (bottom row first), or null if the
-  // browser cannot read float pixels.
+  // browser cannot read float pixels. field: 'psi', 'rho' or, raw only, 'esp'.
   renderSlice(size, center, e1, e2, half, field, raw = false) {
     const gl = this.gl, s = this.scene, sl = this.slice;
     if (raw && !this.canReadFloat) return null;
@@ -433,7 +552,7 @@ export class FogRenderer {
     gl.uniform3fv(U.uE2, e2);
     gl.uniform1f(U.uHalf, half);
     gl.uniform1f(U.uN, size);
-    gl.uniform1i(U.uPlField, field === 'rho' ? 1 : 0);
+    gl.uniform1i(U.uPlField, field === 'rho' ? 1 : field === 'esp' ? 2 : 0);
     gl.uniform1i(U.uRaw, raw ? 1 : 0);
     gl.bindFramebuffer(gl.FRAMEBUFFER, sl.fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sl.texture, 0);
@@ -458,9 +577,9 @@ export class FogRenderer {
     return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
   }
 
-  // kind: 'grid' (fills the density grid), 'orbgrid' (fills the orbital grid), 'slice' (the
-  // flat cut), or the ray march: 'march' followed by 'b' if the body is read from its grid
-  // and by 'o' if the orbital is
+  // kind: 'grid' (fills the density grid), 'orbgrid' (fills the orbital grid), 'espgrid' (fills
+  // the potential grid), 'slice' (the flat cut), or the ray march: 'march' followed by 'b' if
+  // the body is read from its grid, by 'o' if the orbital is and by 'e' if the potential is
   _program(maxAo, kind) {
     const key = `${kind}/${maxAo}`;
     let p = this.programs.get(key);
@@ -475,8 +594,8 @@ export class FogRenderer {
     };
     const prog = gl.createProgram();
     gl.attachShader(prog, shader(gl.VERTEX_SHADER, VS));
-    gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, kind === 'grid' ? gridSource(maxAo) : kind === 'orbgrid' ? orbitalGridSource(maxAo) : kind === 'slice' ? sliceSource(maxAo)
-      : fragmentSource(maxAo, kind.includes('b', 5), kind.includes('o', 5))));
+    gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, kind === 'grid' ? gridSource(maxAo) : kind === 'orbgrid' ? orbitalGridSource(maxAo) : kind === 'espgrid' ? potentialGridSource()
+      : kind === 'slice' ? sliceSource(maxAo) : fragmentSource(maxAo, kind.includes('b', 5), kind.includes('o', 5), kind.includes('e', 5))));
     gl.linkProgram(prog);
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error('The shader failed to build: ' + gl.getProgramInfoLog(prog));
     p = { prog, U: {} };
@@ -488,7 +607,7 @@ export class FogRenderer {
   // the ray march for the scene: with the orbital from its grid, or exact
   _march(orbGrid) {
     const s = this.scene;
-    return this._program(bucket(s.nao, 16), `march${this.bodyGrid ? 'b' : ''}${orbGrid ? 'o' : ''}`);
+    return this._program(bucket(s.nao, 16), `march${this.bodyGrid ? 'b' : ''}${orbGrid ? 'o' : ''}${this.espGrid ? 'e' : ''}`);
   }
 
   _upload(name, width, height, internal, format, data) {
@@ -543,27 +662,73 @@ export class FogRenderer {
     const rb = mr + 4.5;
     this.scene = {
       nat, nao, coef: new Float32Array(nao), occRows, result, rb,
+      rb0: rb, // rb as the nuclei ask for it; a view may need more, see _fit
+      held: !!extent,
+      reach: null, // how far from the origin the surface of the cloud reaches, once known: see setPotential
       nFragments: fragments && fragments.includes(1) ? 2 : 1,
-      // same framing as the reference demo; more ray steps only for larger molecules
-      distance: 2.3 * (mr + 2.6),
+      distance: 2.3 * (mr + 2.6), // same framing as the reference demo
+      espDistance: 2.3 * (mr + 4.3), // for the surface of the potential, which lies further out: see setPotential
+      equiDistance: 2.3 * (mr + 6.5), // for the surfaces of equal potential around it
       planeRadius: planeRadius ?? mr + 2.4, // radius of the drawn cutting disc and half-width of the flat plot
-      steps: Math.max(120, Math.min(MAX_STEPS, Math.round(120 * rb / 8.5))),
+      steps: stepsFor(rb),
       ghost: 0,
       selected: 0,
       // the grids are filled when a frame first needs them: dynamics may bring several
       // geometries between two frames, and the body may be switched off
       orbStale: true,
       bodyStale: true,
+      espStale: true,
+      sites: 0, // charge sites of the potential, and how many of them are nuclei: see setPotential
+      siteAtoms: 0,
     };
+    this._upload('uSite', 1, 4, gl.RGBA32F, gl.RGBA, new Float32Array(16));
+    this._upload('uPen', PEN_N, 1, gl.R32F, gl.RED, new Float32Array(PEN_N));
     this._upload('uCoef', nao, 1, gl.R32F, gl.RED, this.scene.coef);
     this._upload('uOcc', nao, occRows, gl.RGBA32F, gl.RGBA, occ);
     return this.scene;
+  }
+
+  // The charges the potential of the scene is drawn from: see chargeSites in esp.js. Given
+  // after setScene, for the same geometry; until then the potential is zero everywhere.
+  setPotential(sites) {
+    const gl = this.gl, s = this.scene, n = sites.n, data = new Float32Array(16 * n), M = sites.multipoles;
+    for (let k = 0; k < n; k++) {
+      data.set(sites.positions.subarray(3 * k, 3 * k + 3), 4 * k);
+      data.set(M.subarray(10 * k, 10 * k + 4), 4 * (n + k));
+      data.set(M.subarray(10 * k + 4, 10 * k + 8), 4 * (2 * n + k));
+      data.set(M.subarray(10 * k + 8, 10 * k + 10), 4 * (3 * n + k));
+    }
+    this._upload('uSite', n, 4, gl.RGBA32F, gl.RGBA, data);
+    this._upload('uPen', PEN_N, sites.atoms, gl.R32F, gl.RED, sites.pen);
+    s.sites = n;
+    s.siteAtoms = sites.atoms;
+    s.espStale = true;
+    // the whole surface in the picture (2.6: a sphere of radius `reach` just fits the view);
+    // with the surfaces of equal potential, some room around it for them
+    s.reach = sites.reach;
+    s.espDistance = 2.6 * (sites.reach + 0.3);
+    s.equiDistance = 2.6 * (sites.reach + 2.5);
+  }
+
+  // The sphere that is drawn must hold what the view shows: the surface of the cloud (for an
+  // anion or a lone alkali atom it reaches further than the nuclei suggest), and around it
+  // the surfaces of equal potential. Changing it makes every grid stale. While the caller
+  // holds the extent (dynamics), it is held too: the cloud is within rb0 as it is.
+  _fit(view) {
+    const s = this.scene, equi = view === 'equi';
+    const rb = s.held ? s.rb0 + (equi ? EQUI_MARGIN - 4.5 : 0) : Math.max(s.rb0, s.reach === null ? 0 : s.reach + (equi ? EQUI_MARGIN : 0.6));
+    if (rb === s.rb) return;
+    s.rb = rb;
+    s.steps = stepsFor(rb);
+    s.bodyStale = s.orbStale = s.espStale = true;
   }
 
   _bind(U) {
     const gl = this.gl, s = this.scene;
     gl.uniform1f(U.uRb, s.rb);
     gl.uniform1i(U.uNA, s.nat);
+    gl.uniform1i(U.uNS, s.sites);
+    gl.uniform1i(U.uNP, s.siteAtoms);
     gl.uniform1i(U.uNO, s.occRows);
     Object.entries(UNITS).forEach(([name, unit]) => {
       gl.activeTexture(gl.TEXTURE0 + unit);
@@ -590,8 +755,8 @@ export class FogRenderer {
   // Fills the 3D texture `target` (n voxels along the edge) with what the program `kind`
   // computes: one draw call onto the sheet, then a copy of every slice. False if the browser
   // cannot do that after all.
-  _bake(kind, target, n, part = 0) {
-    const gl = this.gl, s = this.scene, sh = this.sheet;
+  _bake(kind, target, n, part = 0, sh = this.sheet) {
+    const gl = this.gl, s = this.scene;
     if (sh.n !== n) {
       const cols = Math.ceil(Math.sqrt(n)), rows = Math.ceil(n / cols);
       if (cols * n > gl.getParameter(gl.MAX_TEXTURE_SIZE)) return false;
@@ -660,6 +825,25 @@ export class FogRenderer {
     if (!this._bake('grid', g.texture, n)) this.bodyGrid = false;
   }
 
+  // The potential costs a sum over all the charge sites at every voxel, so for a large molecule
+  // its grid is coarser than the density's. It can be: outside the molecule the potential is smooth.
+  _potentialSize() {
+    return Math.max(24, Math.min(this._gridSize(), Math.floor(Math.cbrt(3e8 / Math.max(1, this.scene.sites)))));
+  }
+
+  _fillPotential() {
+    const gl = this.gl, s = this.scene, e = this.esp, n = this._potentialSize();
+    gl.activeTexture(gl.TEXTURE10);
+    if (e.n !== n) {
+      gl.deleteTexture(e.texture);
+      e.texture = this._texture3D(gl.R16F, n);
+      e.n = n;
+    }
+    s.espStale = false;
+    // if it cannot be done, the potential is summed at every ray step on the surface from now on
+    if (!this._bake('espgrid', e.texture, n, 0, this.espSheet)) this.espGrid = false;
+  }
+
   // Show orbital m in colour.
   select(m) {
     const s = this.scene, gl = this.gl, { result } = s;
@@ -681,12 +865,18 @@ export class FogRenderer {
   // camera: { yaw, pitch, distance } or one turned freely, see turnCamera
   // exact: evaluate the orbital from the basis set at every ray step instead of reading its
   // grid. Many times slower; meant for the frame that stays on the screen.
-  draw(camera, { body = true, exact = false } = {}) {
+  // view: 'orbital'; 'esp': the density surface coloured by the electrostatic potential, full
+  // colour at +-espScale (Eh per unit charge); 'equi': that surface in grey and the surfaces
+  // where the potential is +-espScale. The orbital and the body are drawn in 'orbital' only.
+  draw(camera, { body = true, exact = false, view = 'orbital', espScale = 0.08 } = {}) {
     const s = this.scene, gl = this.gl;
     if (!s) return;
-    // either may find its grid unusable
-    if (this.bodyGrid && body && s.bodyStale) this._fillGrid();
-    if (this.orbGrid && !exact && s.orbStale) this._fillOrbital();
+    const esp = view !== 'orbital';
+    this._fit(view);
+    // any of them may find its grid unusable
+    if (this.bodyGrid && (body || esp) && s.bodyStale) this._fillGrid();
+    if (this.orbGrid && !exact && !esp && s.orbStale) this._fillOrbital();
+    if (this.espGrid && esp && s.espStale) this._fillPotential();
     const fromGrid = this.orbGrid && !exact;
     const { prog, U } = this._march(fromGrid);
     gl.useProgram(prog);
@@ -704,6 +894,13 @@ export class FogRenderer {
     gl.activeTexture(gl.TEXTURE4);
     gl.bindTexture(gl.TEXTURE_3D, this.grid.texture);
     gl.uniform1i(U.uRho, 4);
+    gl.activeTexture(gl.TEXTURE10);
+    gl.bindTexture(gl.TEXTURE_3D, this.esp.texture ?? this.grid.texture);
+    gl.uniform1i(U.uEsp, 10);
+    gl.uniform1i(U.uView, view === 'esp' ? 1 : view === 'equi' ? 2 : 0);
+    gl.uniform1f(U.uVoxE, this.espGrid && this.esp.n ? 2 * s.rb / this.esp.n : 0.05);
+    gl.uniform1f(U.uEspScale, espScale);
+    gl.uniform1f(U.uVox, this.bodyGrid ? 2 * s.rb / this.grid.n : 0.05);
     if (fromGrid) {
       gl.activeTexture(gl.TEXTURE6);
       gl.bindTexture(gl.TEXTURE_3D, this.orb.a);

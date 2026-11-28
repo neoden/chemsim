@@ -19,6 +19,13 @@ export function frontier(result) {
   return { homo, lumo: homo + 1 < result.nmo ? homo + 1 : -1 };
 }
 
+// The orbital a scene is first shown with: the highest filled one; with no valence electrons
+// at all (a bare K+ or Na+), the lowest empty one.
+export function firstShown(result) {
+  const { homo, lumo } = frontier(result);
+  return homo >= 0 ? homo : lumo;
+}
+
 // Functions of a shell, in the order of the engine interface. Each is the radial part of the
 // shell times a polynomial of the displacement from the nucleus:
 //   s;  p: x, y, z;  d: sqrt(3) xy, sqrt(3) yz, z^2 - (x^2 + y^2)/2, sqrt(3) xz, sqrt(3)/2 (x^2 - y^2).
@@ -27,8 +34,8 @@ export function frontier(result) {
 const S3 = Math.sqrt(3);
 export const AO_LABELS = [['s'], ['px', 'py', 'pz'], ['dxy', 'dyz', 'dz²', 'dxz', 'dx²−y²']];
 // Cartesian monomials x^i y^j z^k of a shell, and the functions above as their combinations
-const CART = [[[0, 0, 0]], [[1, 0, 0], [0, 1, 0], [0, 0, 1]], [[2, 0, 0], [1, 1, 0], [1, 0, 1], [0, 2, 0], [0, 1, 1], [0, 0, 2]]];
-const COMBO = [[[1]], [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+export const CART = [[[0, 0, 0]], [[1, 0, 0], [0, 1, 0], [0, 0, 1]], [[2, 0, 0], [1, 1, 0], [1, 0, 1], [0, 2, 0], [0, 1, 1], [0, 0, 2]]];
+export const COMBO = [[[1]], [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
   [[0, S3, 0, 0, 0, 0], [0, 0, 0, 0, S3, 0], [-0.5, 0, 0, -0.5, 0, 1], [0, 0, S3, 0, 0, 0], [S3 / 2, 0, 0, -S3 / 2, 0, 0]]];
 
 // Values of the 2l + 1 functions of a shell at displacement (x, y, z) from its nucleus,
